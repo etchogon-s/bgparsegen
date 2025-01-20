@@ -1,0 +1,17 @@
+grammar ::= rule rlist
+rlist ::= rule rlist
+       |  epsilon
+rule ::= IDENT "::=" rhs
+rhs ::= conjunction conlist
+conlist ::= "|" conjunction conlist
+         |  epsilon
+conjunction ::= conjunct clist
+clist ::= "&" conjunct clist
+       |  epsilon
+conjunct ::= pos | neg
+neg ::= "~" pos
+pos ::= term tlist
+tlist ::= term tlist
+       |  epsilon
+term ::= IDENT | terminal
+terminal ::= '"' STR_LIT '"'
