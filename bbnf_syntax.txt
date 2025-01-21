@@ -1,7 +1,7 @@
 grammar ::= rule rlist
 rlist ::= rule rlist
        |  epsilon
-rule ::= IDENT "::=" rhs
+rule ::= IDENT "=" rhs
 rhs ::= conjunction conlist
 conlist ::= "|" conjunction conlist
          |  epsilon
