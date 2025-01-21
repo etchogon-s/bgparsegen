@@ -1,7 +1,7 @@
 grammar ::= rule rlist
 rlist ::= rule rlist
        |  epsilon
-rule ::= IDENT "=" rhs
+rule ::= NON_TERM "=" rhs
 rhs ::= conjunction conlist
 conlist ::= "|" conjunction conlist
          |  epsilon
@@ -13,5 +13,5 @@ neg ::= "~" pos
 pos ::= term tlist
 tlist ::= term tlist
        |  epsilon
-term ::= IDENT | terminal
+term ::= NON_TERM | terminal
 terminal ::= '"' STR_LIT '"'
