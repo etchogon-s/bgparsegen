@@ -1,11 +1,11 @@
-grammar ::= rule rlist
-rlist ::= rule rlist
+grammar ::= disjunction dlist
+dlist ::= disjunction dlist
        |  epsilon
-rule ::= NON_TERM "=" rhs
-rhs ::= conjunction conlist
-conlist ::= "|" conjunction conlist
-         |  epsilon
-conjunction ::= conjunct clist
+disjunction ::= NON_TERM "->" rhs ";"
+rhs ::= rule rlist
+rlist ::= "|" rule rlist
+       |  epsilon
+rule ::= conjunct clist
 clist ::= "&" conjunct clist
        |  epsilon
 conjunct ::= pos | neg
