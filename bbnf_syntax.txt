@@ -1,17 +1,15 @@
 grammar ::= disjunction dlist
 dlist ::= disjunction dlist
        |  epsilon
-disjunction ::= NON_TERM "->" rhs ";"
+disjunction ::= NON_TERM '->' rhs ';'
 rhs ::= rule rlist
-rlist ::= "|" rule rlist
+rlist ::= '|' rule rlist
        |  epsilon
 rule ::= conjunct clist
-clist ::= "&" conjunct clist
+clist ::= '&' conjunct clist
        |  epsilon
-conjunct ::= pos | neg
-neg ::= "~" pos
-pos ::= term tlist
-tlist ::= term tlist
+conjunct ::= neg symbol slist
+neg ::= '~' | epsilon
+slist ::= symbol slist
        |  epsilon
-term ::= NON_TERM | terminal
-terminal ::= '"' STR_LIT '"'
+symbol ::= NON_TERM | '"' STR_LIT '"'
