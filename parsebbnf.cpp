@@ -250,9 +250,9 @@ static Node parseConj() {
     bool pos = true;   // assume positive conjunct
     if (match(NEG))
         pos = false;   // negative conjunct if preceded by '~'
-    NodeList symbList; // initialise symbol list
 
     // Add symbol to list until '&' or semicolon reached
+    NodeList symbList;
     do {
         symbList.push_back(parseSymbol());
     } while (!match(CONJ) && !match(SC));
@@ -263,9 +263,8 @@ static Node parseConj() {
 //        |  epsilon
 // rule ::= conjunct clist
 static Node parseRule(TOKEN nt) {
-    NodeList conjList; // initialise conjunct list
-
     // Add conjunct to list until '|' or semicolon reached
+    NodeList conjList;
     do {
         conjList.push_back(parseConj());
     } while (!match(DISJ) && !match(SC));
@@ -274,9 +273,8 @@ static Node parseRule(TOKEN nt) {
 
 // disjunction ::= NON_TERM '->' rule rlist ';'
 static Node parseDisj() {
-    TOKEN nt = CurTok;  // get current token; should be non-terminal symbol
-
     // If current token is a non-terminal, move on to next token; if not, error
+    TOKEN nt = CurTok;
     if (nt.type == NON_TERM)
         getNextToken();
     else
