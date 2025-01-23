@@ -1,8 +1,7 @@
 grammar ::= disjunction dlist
 dlist ::= disjunction dlist
        |  epsilon
-disjunction ::= NON_TERM '->' rhs ';'
-rhs ::= rule rlist
+disjunction ::= NON_TERM '->' rule rlist ';'
 rlist ::= '|' rule rlist
        |  epsilon
 rule ::= conjunct clist
