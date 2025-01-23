@@ -9,7 +9,7 @@
 
 enum TOKEN_TYPE {
     NON_TERM = -1,   // non-terminal symbol [a-zA-Z_0-9]*
-    DERIVE = -2,     // '->'
+    DERIVE = -2,     // ->
     DISJ = int('|'), // disjunction
     CONJ = int('&'), // conjunction
     NEG = int('~'),  // negation
@@ -66,11 +66,20 @@ static TOKEN getToken() {
 
         // Add characters to string until closing " reached
         while ((currentChar = fgetc(bbnfFile)) != '"') {
+
+            // \" escape sequence for " to be contained in string literal
+            if (currentChar == '\\') {
+                nextChar = fgetc(bbnfFile);
+                if (nextChar == '"') {
+                    currentChar = nextChar; // if \ followed by ", skip \ in currentStr
+                    columnNo++;
+                }
+            }
             currentStr += currentChar;
             columnNo++;
         }
 
-        // Set currentChar to character after closing ", and return string literal token
+        // Set currentChar to character following closing ", and return string literal token
         currentChar = fgetc(bbnfFile);
         columnNo++;
         return returnToken(currentStr, STR_LIT);
@@ -113,6 +122,7 @@ static TOKEN getToken() {
         return returnToken("~", NEG);
     }
 
+    // After -, check for > to build -> derivation symbol token
     if (currentChar == '-') {
         nextChar = fgetc(bbnfFile);
         if (nextChar == '>') {
@@ -122,7 +132,7 @@ static TOKEN getToken() {
         } else {
             currentChar = nextChar;
             columnNo++;
-            return returnToken("-", int('-'));
+            return returnToken("-", int('-')); // just return - if no following >
         }
     }
 
@@ -272,8 +282,7 @@ static Node parseRule(TOKEN nt) {
     return std::make_unique<RuleNode>(nt, std::move(conjList));
 }
 
-// disjunction ::= NON_TERM '->' rhs ';'
-// rhs ::= rule rlist
+// disjunction ::= NON_TERM '->' rule rlist ';'
 static Node parseDisj() {
     auto nt = matchNt(CurTok); // get non-terminal symbol
     NodeList ruleList;         // initialise rule list
