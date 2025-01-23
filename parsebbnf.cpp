@@ -200,7 +200,7 @@ class DisjNode: public ASTnode {
 static TOKEN CurTok;                 // current token that parser is looking at
 static std::deque<TOKEN> tok_buffer; // token buffer
 
-// Read another token from lexer and update CurTok with result
+// Read another token from lexer and update current token
 static TOKEN getNextToken() {
     if (tok_buffer.size() == 0)
         tok_buffer.push_back(getToken());
@@ -225,16 +225,6 @@ bool match(TOKEN_TYPE tokType) {
         return true;
     }
     return false; // do not move on, current token will likely be checked again
-}
-
-// Check if current token is non-terminal and return it; display error if not non-terminal
-static TOKEN matchNt(TOKEN tok) {
-    if (tok.type == NON_TERM) {
-        getNextToken(); // if non-terminal matched, move on to next token
-        return tok;
-    }
-    parseError("non-terminal");
-    return tok;
 }
 
 // symbol ::= NON_TERM | '"' STR_LIT '"'
@@ -284,14 +274,20 @@ static Node parseRule(TOKEN nt) {
 
 // disjunction ::= NON_TERM '->' rule rlist ';'
 static Node parseDisj() {
-    auto nt = matchNt(CurTok); // get non-terminal symbol
-    NodeList ruleList;         // initialise rule list
+    TOKEN nt = CurTok;  // get current token; should be non-terminal symbol
+
+    // If current token is a non-terminal, move on to next token; if not, error
+    if (nt.type == NON_TERM)
+        getNextToken();
+    else
+        parseError("non-terminal");
 
     // Syntax error if non-terminal not followed by '->'
     if (!match(DERIVE))
         parseError("'->'");
 
     // Add rule to list until semicolon reached
+    NodeList ruleList;
     do {
         ruleList.push_back(parseRule(nt));
     } while (!match(SC));
