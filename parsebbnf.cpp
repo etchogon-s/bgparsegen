@@ -151,6 +151,7 @@ static TOKEN getToken() {
 class ASTnode {
     public:
         virtual ~ASTnode() {}
+        //virtual std::string to_string(int depth) const {return "";}; // for AST printer
 };
 
 // Concise aliases
@@ -164,6 +165,7 @@ class SymbNode: public ASTnode {
 
     public:
         SymbNode(bool terminal, std::string symb): Terminal(terminal), Symb(symb) {}
+        //virtual std::string to_string(int depth) const override;
 };
 
 // Conjunct node
@@ -173,6 +175,7 @@ class ConjNode: public ASTnode {
 
     public:
         ConjNode(bool pos, NodeList expr): Pos(pos), Expr(std::move(expr)) {}
+        //virtual std::string to_string(int depth) const override;
 };
 
 // Rule node (conjunction of conjuncts)
@@ -182,6 +185,7 @@ class RuleNode: public ASTnode {
 
     public:
         RuleNode(TOKEN nt, NodeList conjuncts): Nt(nt), Conjuncts(std::move(conjuncts)) {}
+        //virtual std::string to_string(int depth) const override;
 };
 
 // Disjunction of grammar rules for particular non-terminal
@@ -191,6 +195,7 @@ class DisjNode: public ASTnode {
 
     public:
         DisjNode(TOKEN nt, NodeList rules): Nt(nt), Rules(std::move(rules)) {}
+        //virtual std::string to_string(int depth) const override;
 };
 
 //--------------------------//
