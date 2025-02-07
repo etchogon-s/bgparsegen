@@ -230,6 +230,9 @@ bool match(TOKEN_TYPE tokType) {
     return false; // do not move on, current token will likely be checked again
 }
 
+std::set<std::string> alphabet; // set of terminal symbols over which grammar is defined
+std::set<std::string> nonTerms; // set of non-terminal symbols used in grammar
+
 // symbol ::= NON_TERM | '"' STR_LIT '"'
 static Node parseSymbol() {
     bool terminal = true;
@@ -238,7 +241,13 @@ static Node parseSymbol() {
     else if (CurTok.type != STR_LIT)
         parseError("non-terminal or literal"); // error if neither NON_TERM nor STR_LIT
 
-    std::string symb = CurTok.lexeme; // get symbol
+    // Get symbol and add to either alphabet or set of non-terminals, if not already added
+    std::string symb = CurTok.lexeme;
+    if (terminal)
+        alphabet.insert(symb);
+    else
+        nonTerms.insert(symb);
+
     getNextToken();                   // move on to next token
     return std::make_unique<SymbNode>(terminal, symb);
 }
@@ -308,6 +317,10 @@ static NodeList parseGrammar() {
     } while (!match(EOF_TOK));
     return disjList;
 }
+
+//-------------//
+// Main Driver //
+//-------------//
 
 // Get input file and user's algorithm choice
 int main(int argc, char **argv) {
