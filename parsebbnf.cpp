@@ -1,7 +1,8 @@
-#include <cctype>
 #include <deque>
 #include <iostream>
+#include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -141,61 +142,6 @@ static TOKEN getToken() {
     return returnToken(s, INVALID);
 }
 
-//-----------//
-// AST nodes //
-//-----------//
-
-// Base class for all AST nodes
-class ASTnode {
-    public:
-        virtual ~ASTnode() {}
-        //virtual std::string to_string(int depth) const {return "";}; // for AST printer
-};
-
-// Concise aliases
-using Node = std::unique_ptr<ASTnode>; // pointer to AST node
-using NodeList = std::vector<Node>;    // list of AST nodes
-
-// Node for non-terminal or terminal in conjunct
-class SymbNode: public ASTnode {
-    bool Terminal;    // true if terminal symbol, false if non-terminal
-    std::string Symb; // symbol
-
-    public:
-        SymbNode(bool terminal, std::string symb): Terminal(terminal), Symb(symb) {}
-        //virtual std::string to_string(int depth) const override;
-};
-
-// Conjunct node
-class ConjNode: public ASTnode {
-    bool Pos;      // true if positive conjunct, false if negative
-    NodeList Expr; // symbols making up conjunct
-
-    public:
-        ConjNode(bool pos, NodeList expr): Pos(pos), Expr(std::move(expr)) {}
-        //virtual std::string to_string(int depth) const override;
-};
-
-// Rule node (conjunction of conjuncts)
-class RuleNode: public ASTnode {
-    TOKEN Nt;           // non-terminal symbol that derives conjunction
-    NodeList Conjuncts; // conjuncts making up rule
-
-    public:
-        RuleNode(TOKEN nt, NodeList conjuncts): Nt(nt), Conjuncts(std::move(conjuncts)) {}
-        //virtual std::string to_string(int depth) const override;
-};
-
-// Disjunction of grammar rules for particular non-terminal
-class DisjNode: public ASTnode {
-    TOKEN Nt;       // non-terminal symbol
-    NodeList Rules; // disjunction of rules
-
-    public:
-        DisjNode(TOKEN nt, NodeList rules): Nt(nt), Rules(std::move(rules)) {}
-        //virtual std::string to_string(int depth) const override;
-};
-
 //--------------------------//
 // Recursive Descent Parser //
 //--------------------------//
@@ -230,26 +176,49 @@ bool match(TOKEN_TYPE tokType) {
     return false; // do not move on, current token will likely be checked again
 }
 
-std::set<std::string> alphabet; // set of terminal symbols over which grammar is defined
-std::set<std::string> nonTerms; // set of non-terminal symbols used in grammar
+// Non-terminal or terminal in conjunct
+struct SYMBOL {
+    bool terminal;    // true if terminal, false if non-terminal
+    std::string symb;
+};
+
+using SymbList = std::vector<SYMBOL>; // list of symbols
+
+// Conjunct (list of symbols)
+class Conjunct {
+    bool Pos;      // true if positive conjunct, false if negative
+    SymbList Expr; // symbols making up conjunct
+
+    public:
+        Conjunct(bool pos, SymbList expr): Pos(pos), Expr(std::move(expr)) {}
+};
+
+using Conj = std::unique_ptr<Conjunct>; // pointer to conjunct
+using ConjList = std::vector<Conj>;     // list of conjuncts
+
+std::set<std::string> alphabet;                     // set of terminal symbols
+std::map<std::string, std::set<ConjList>> nonTerms; // set of non-terminals and rules
 
 // symbol ::= NON_TERM | '"' STR_LIT '"'
-static Node parseSymbol() {
+static SYMBOL parseSymbol() {
     bool terminal = true;
     if (CurTok.type == NON_TERM)
         terminal = false;
     else if (CurTok.type != STR_LIT)
         parseError("non-terminal or literal"); // error if neither NON_TERM nor STR_LIT
 
-    // Get symbol and add to either alphabet or set of non-terminals, if not already added
+    // Get symbol and add to alphabet if terminal
     std::string symb = CurTok.lexeme;
     if (terminal)
         alphabet.insert(symb);
-    else
-        nonTerms.insert(symb);
 
-    getNextToken();                   // move on to next token
-    return std::make_unique<SymbNode>(terminal, symb);
+    getNextToken(); // move on to next token
+
+    // Create & return new symbol
+    SYMBOL newSymb;
+    newSymb.terminal = terminal;
+    newSymb.symb = symb;
+    return newSymb;
 }
 
 // clist ::= '&' conjunct clist
@@ -258,33 +227,33 @@ static Node parseSymbol() {
 // neg ::= '~' | epsilon
 // slist ::= symbol slist
 //        |  epsilon
-static Node parseConj() {
-    bool pos = true;   // assume positive conjunct
+static Conj parseConj() {
+    bool pos = true; // assume positive conjunct
     if (match(NEG))
-        pos = false;   // negative conjunct if preceded by '~'
+        pos = false; // negative conjunct if preceded by '~'
 
     // Add symbol to list until '&' or semicolon reached
-    NodeList symbList;
+    SymbList symbols;
     do {
-        symbList.push_back(parseSymbol());
+        symbols.push_back(parseSymbol());
     } while (!match(CONJ) && !match(SC));
-    return std::make_unique<ConjNode>(pos, std::move(symbList));
+    return std::make_unique<Conjunct>(pos, std::move(symbols));
 }
 
 // rlist ::= '|' rule rlist
 //        |  epsilon
 // rule ::= conjunct clist
-static Node parseRule(TOKEN nt) {
-    // Add conjunct to list until '|' or semicolon reached
-    NodeList conjList;
+static ConjList parseRule() {
+    // Add conjunct to set until '|' or semicolon reached
+    ConjList cList;
     do {
-        conjList.push_back(parseConj());
+        cList.push_back(parseConj());
     } while (!match(DISJ) && !match(SC));
-    return std::make_unique<RuleNode>(nt, std::move(conjList));
+    return cList;
 }
 
 // disjunction ::= NON_TERM '->' rule rlist ';'
-static Node parseDisj() {
+static void parseDisj() {
     // If current token is a non-terminal, move on to next token; if not, error
     TOKEN nt = CurTok;
     if (nt.type == NON_TERM)
@@ -296,26 +265,30 @@ static Node parseDisj() {
     if (!match(DERIVE))
         parseError("'->'");
 
-    // Add rule to list until semicolon reached
-    NodeList ruleList;
+    // Add rule (set of conjuncts) to set until semicolon reached
+    std::set<ConjList> rules;
     do {
-        ruleList.push_back(parseRule(nt));
+        rules.insert(parseRule());
     } while (!match(SC));
-    return std::make_unique<DisjNode>(nt, std::move(ruleList));
+
+    // If nt is already a key in the map, merge its existing rule set with new rule set
+    std::string ntSymb = nt.lexeme;
+    if (nonTerms.count(ntSymb))
+        nonTerms.at(ntSymb).merge(rules);
+    else
+        nonTerms[ntSymb] = std::move(rules);
 }
 
 // grammar ::= disjunction dlist
 // dlist ::= disjunction dlist
 //        |  epsilon
-static NodeList parseGrammar() {
-    getNextToken();    // get first token
-    NodeList disjList; // initialise disjunction list
+static void parseGrammar() {
+    getNextToken(); // get first token
 
     // Add disjunction to list until EOF reached
     do {
-        disjList.push_back(parseDisj());
+        parseDisj();
     } while (!match(EOF_TOK));
-    return disjList;
 }
 
 //-------------//
@@ -338,7 +311,7 @@ int main(int argc, char **argv) {
     columnNo = 1;
 
     // Run parser
-    auto grammarAST = parseGrammar();
+    parseGrammar();
     std::cout << "Parsing finished\n";
 
     fclose(bbnfFile);
