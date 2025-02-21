@@ -6,30 +6,32 @@
 #include <string>
 #include <vector>
 
+//-------//
+// Lexer //
+//-------//
+
 enum TOKEN_TYPE {
-    NON_TERM = -1,   // non-terminal symbol [a-zA-Z_0-9]*
-    DERIVE = -2,     // ->
-    DISJ = int('|'), // disjunction
-    CONJ = int('&'), // conjunction
-    NEG = int('~'),  // negation
-    SC = int(';'),   // semicolon
-    STR_LIT = -99,   // terminal (string literal)
-    EOF_TOK = 0,     // end of file
-    INVALID = -100   // invalid token
+    NON_TERM, // non-terminal symbol
+    DERIVE,   // '->' (derivation)
+    DISJ,     // '|' (disjunction)
+    CONJ,     // '&' (conjunction)
+    NEG,      // '~' (negation)
+    SC,       // semicolon
+    STR_LIT,  // terminal (string literal)
+    EOF_TOK,  // end of file
+    INVALID,  // invalid token
 };
 
 struct TOKEN {
-    int type = -100;
+    int type;
     std::string lexeme; // actual contents of token
     int lineNo;
     int columnNo;
 };
 
-//-------//
-// Lexer //
-//-------//
-
 FILE *bbnfFile;              // input grammar file
+char currentChar = ' ';      // current character lexer is reading
+char nextChar = ' ';         // character following current character
 static int lineNo, columnNo;
 
 // Create token
@@ -39,13 +41,12 @@ static TOKEN returnToken(std::string lexVal, int tokType) {
     tok.type = tokType;
     tok.lineNo = lineNo;
     tok.columnNo = columnNo - lexVal.length() - 1;
+    std::cout << "Found token " + lexVal + " type " + std::to_string(tokType) + "\n";
     return tok;
 }
 
-// Build token by reading string from file
+// Build token by reading characters from file
 static TOKEN getToken() {
-    char currentChar = ' ';      // current character lexer is reading
-    char nextChar = ' ';         // character following current character
     std::string currentStr = ""; // holds current string being tokenised
 
     // Skip whitespace
@@ -96,30 +97,6 @@ static TOKEN getToken() {
         return returnToken(currentStr, NON_TERM);
     }
 
-    if (currentChar == ';') {
-        currentChar = fgetc(bbnfFile);
-        columnNo++;
-        return returnToken(";", SC);
-    }
-
-    if (currentChar == '|') {
-        currentChar = fgetc(bbnfFile);
-        columnNo++;
-        return returnToken("|", DISJ);
-    }
-    
-    if (currentChar == '&') {
-        currentChar = fgetc(bbnfFile);
-        columnNo++;
-        return returnToken("&", CONJ);
-    }
-
-    if (currentChar == '~') {
-        currentChar = fgetc(bbnfFile);
-        columnNo++;
-        return returnToken("~", NEG);
-    }
-
     // After -, check for > to build -> derivation symbol token
     if (currentChar == '-') {
         nextChar = fgetc(bbnfFile);
@@ -130,15 +107,37 @@ static TOKEN getToken() {
         } else {
             currentChar = nextChar;
             columnNo++;
-            return returnToken("-", int('-')); // just return - if no following >
+            return returnToken("-", INVALID); // just return - if no following >
         }
     }
 
-    // Invalid token if none of the previous
-    std::string s(1, currentChar);
+    // Build single character tokens, if character not recognised create invalid token
+    TOKEN newTok;
+    switch (currentChar) {
+        case '|':
+            newTok = returnToken("|", DISJ);
+            break;
+        case '&':
+            newTok = returnToken("&", CONJ);
+            break;
+        case '~':
+            newTok = returnToken("~", NEG);
+            break;
+        case ';':
+            newTok = returnToken(";", SC);
+            break;
+        case EOF:
+            return returnToken("EOF", EOF_TOK); // end of file reached, do not read more characters
+            break;
+        default:
+            std::string s(1, currentChar);
+            newTok = returnToken(s, INVALID);
+            break;
+    }
+
     currentChar = fgetc(bbnfFile);
     columnNo++;
-    return returnToken(s, INVALID);
+    return newTok;
 }
 
 //-------------------//
@@ -148,6 +147,7 @@ static TOKEN getToken() {
 class ASTNode {
     public:
         virtual ~ASTNode() {}
+        virtual std::string toString(int depth) const {return "";};
 };
 
 using Node = std::unique_ptr<ASTNode>;
@@ -160,15 +160,17 @@ class Symbol: public ASTNode {
 
     public:
         Symbol(bool terminal, std::string str): Terminal(terminal), Str(str) {}
+        virtual std::string toString(int depth) const override;
 };
 
 // Conjunct (list of symbols)
 class Conjunct: public ASTNode {
-    bool Pos;                 // true if positive conjunct, false if negative
-    NodeList Expr; // symbols making up conjunct
+    bool Pos;          // true if positive conjunct, false if negative
+    NodeList SymbList; // symbols making up conjunct
 
     public:
-        Conjunct(bool pos, NodeList expr): Pos(pos), Expr(std::move(expr)) {}
+        Conjunct(bool pos, NodeList symbList): Pos(pos), SymbList(std::move(symbList)) {}
+        virtual std::string toString(int depth) const override;
 };
 
 // Rule (list of conjuncts)
@@ -177,6 +179,7 @@ class Rule: public ASTNode {
 
     public:
         Rule(NodeList conjList): ConjList(std::move(conjList)) {}
+        virtual std::string toString(int depth) const override;
 };
 
 // Disjunction (non-terminal and list of rules derived by this non-terminal)
@@ -186,6 +189,7 @@ class Disj: public ASTNode {
 
     public:
         Disj(std::string nt, NodeList ruleList): Nt(nt), RuleList(std::move(ruleList)) {}
+        virtual std::string toString(int depth) const override;
 };
 
 // Full grammar (list of disjunctions)
@@ -194,27 +198,28 @@ class Grammar: public ASTNode {
 
     public:
         Grammar(NodeList disjList): DisjList(std::move(disjList)) {}
+        virtual std::string toString(int depth) const override;
 };
 
 //--------------------------//
 // Recursive Descent Parser //
 //--------------------------//
 
-static TOKEN CurTok;                 // current token that parser is looking at
-static std::deque<TOKEN> tok_buffer; // token buffer
+static TOKEN CurTok;                // current token that parser is looking at
+static std::deque<TOKEN> tokBuffer; // token buffer
 
 // Read another token from lexer and update current token
 static TOKEN getNextToken() {
-    if (tok_buffer.size() == 0)
-        tok_buffer.push_back(getToken());
+    if (tokBuffer.size() == 0)
+        tokBuffer.push_back(getToken());
 
-    TOKEN temp = tok_buffer.front();
-    tok_buffer.pop_front();
+    TOKEN temp = tokBuffer.front();
+    tokBuffer.pop_front();
     return CurTok = temp;
 }
 
-// Display parsing error
-// Include token that triggered error, its line and column numbers, and expected sequence
+/* Display parsing error
+ * Include token that triggered error, line and column numbers, and expected sequence */
 void parseError(std::string expected) {
     std::string report = "Parse error [ln " + std::to_string(CurTok.lineNo) + ", col " + std::to_string(CurTok.columnNo) + "]: unexpected token '" + CurTok.lexeme + "' (expecting " + expected + ")\n";
     std::cout << report;
@@ -234,6 +239,7 @@ std::set<std::string> alphabet; // set of terminal symbols
 
 // symbol ::= NON_TERM | '"' STR_LIT '"'
 static Node parseSymbol() {
+    std::cout << "Parsing symbol\n";
     bool terminal = true;
     if (CurTok.type == NON_TERM)
         terminal = false;
@@ -258,32 +264,37 @@ static Node parseSymbol() {
 // slist ::= symbol slist
 //        |  epsilon
 static Node parseConj() {
+    std::cout << "Parsing conjunct\n";
     bool pos = true; // assume positive conjunct
     if (match(NEG))
         pos = false; // negative conjunct if preceded by '~'
 
-    // Add symbol to list until '&' or semicolon reached
-    NodeList expr;
+    // Add symbol to list until ampersand, pipe or semicolon reached
+    NodeList symbList;
     do {
-        expr.push_back(parseSymbol());
-    } while (!match(CONJ) && !match(SC));
-    return std::make_unique<Conjunct>(pos, std::move(expr));
+        symbList.push_back(parseSymbol());
+    } while ((CurTok.type != CONJ) && (CurTok.type != DISJ) && (CurTok.type != SC));
+    return std::make_unique<Conjunct>(pos, std::move(symbList));
 }
 
 // rlist ::= '|' rule rlist
 //        |  epsilon
 // rule ::= conjunct clist
 static Node parseRule() {
-    // Add conjunct to list until '|' or semicolon reached
+    std::cout << "Parsing rule\n";
     NodeList conjList;
+
+    /* Ampersand follows every conjunct except last conjunct in list
+     * Add conjunct to list until conjunct not followed by ampersand */
     do {
         conjList.push_back(parseConj());
-    } while (!match(DISJ) && !match(SC));
+    } while (match(CONJ));
     return std::make_unique<Rule>(std::move(conjList));
 }
 
 // disjunction ::= NON_TERM '->' rule rlist ';'
 static Node parseDisj() {
+    std::cout << "Parsing disjunction\n";
     // If current token is a non-terminal, move on to next token; if not, error
     std::string nt = CurTok.lexeme;
     if (CurTok.type == NON_TERM)
@@ -295,12 +306,16 @@ static Node parseDisj() {
     if (!match(DERIVE))
         parseError("'->'");
 
-    // Add rule to list until semicolon reached
+    /* Pipe follows every rule except last rule in list
+     * Add rule to list until rule not followed by pipe */
     NodeList ruleList;
     do {
         ruleList.push_back(parseRule());
-    } while (!match(SC));
+    } while (match(DISJ));
 
+    // Disjunction must be terminated with semicolon
+    if (!match(SC))
+        parseError("';'");
     return std::make_unique<Disj>(nt, std::move(ruleList));
 }
 
@@ -308,7 +323,7 @@ static Node parseDisj() {
 // dlist ::= disjunction dlist
 //        |  epsilon
 static Node parseGrammar() {
-    getNextToken(); // get first token
+    getNextToken();    // get first token
     NodeList disjList;
 
     // Add disjunction to list until EOF reached
@@ -316,6 +331,67 @@ static Node parseGrammar() {
         disjList.push_back(parseDisj());
     } while (!match(EOF_TOK));
     return std::make_unique<Grammar>(std::move(disjList));
+}
+
+//-------------//
+// AST Printer //
+//-------------//
+
+// Make indentation of given width
+std::string makeIndent(int depth) {
+    std::string indent = "";
+    while (depth > 0) {
+        indent += "▏  ";
+        depth--;
+    }
+    return indent;
+}
+
+// Convert a NodeList to a string
+std::string nlString(const NodeList& list, int depth) {
+    std::string result = "";
+    for (const Node& i : list) {
+        if (i != nullptr)
+            result += i->toString(depth); // convert each item and add to result string
+    }
+    return result;
+}
+
+// Print symbol
+std::string Symbol::toString(int depth) const {
+    std::string term;
+    if (Terminal)
+        term = "";
+    else
+        term = "NON-";
+
+    return makeIndent(depth) + term + "TERMINAL: " + Str + "\n";
+}
+
+// Print conjunct
+std::string Conjunct::toString(int depth) const {
+    std::string posOrNeg;
+    if (Pos)
+        posOrNeg = "+VE";
+    else
+        posOrNeg = "-VE";
+
+    return makeIndent(depth) + posOrNeg + " CONJUNCT:\n" + nlString(SymbList, depth + 1);
+}
+
+// Print rule
+std::string Rule::toString(int depth) const {
+    return makeIndent(depth) + "RULE:\n" + nlString(ConjList, depth + 1);
+}
+
+// Print disjunction
+std::string Disj::toString(int depth) const {
+    return makeIndent(depth) + "NON-TERMINAL " + Nt + "\n" + nlString(RuleList, depth + 1);
+}
+
+// Print grammar
+std::string Grammar::toString(int depth) const {
+    return nlString(DisjList, depth);
 }
 
 //-------------//
@@ -340,6 +416,7 @@ int main(int argc, char **argv) {
     // Run parser
     auto grammar = parseGrammar();
     std::cout << "Parsing finished\n";
+    std::cout << grammar->toString(0);
     fclose(bbnfFile);
     return 0;
 }
