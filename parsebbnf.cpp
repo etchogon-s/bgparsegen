@@ -18,6 +18,7 @@ enum TOKEN_TYPE {
     NEG,      // '~' (negation)
     SC,       // semicolon
     STR_LIT,  // terminal (string literal)
+    EPSILON,  // written in BBNF as 'epsilon'
     EOF_TOK,  // end of file
     INVALID,  // invalid token
 };
@@ -94,6 +95,9 @@ static TOKEN getToken() {
             currentStr += currentChar;
             columnNo++;
         }
+
+        if (currentStr == "epsilon")
+            return returnToken(currentStr, EPSILON);
         return returnToken(currentStr, NON_TERM);
     }
 
@@ -243,8 +247,8 @@ static Node parseSymbol() {
     bool terminal = true;
     if (CurTok.type == NON_TERM)
         terminal = false;
-    else if (CurTok.type != STR_LIT)
-        parseError("non-terminal or literal"); // error if neither NON_TERM nor STR_LIT
+    else if ((CurTok.type != STR_LIT) && (CurTok.type != EPSILON))
+        parseError("non-terminal or literal"); // error if not NON_TERM, STR_LIT or EPSILON
 
     // Get symbol and add to alphabet if terminal
     std::string str = CurTok.lexeme;
