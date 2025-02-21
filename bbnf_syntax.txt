@@ -11,4 +11,4 @@ conjunct ::= neg symbol slist
 neg ::= '~' | epsilon
 slist ::= symbol slist
        |  epsilon
-symbol ::= NON_TERM | '"' STR_LIT '"' | EPSILON
+symbol ::= NON_TERM | '"' STR_LIT '"' | 'epsilon'
