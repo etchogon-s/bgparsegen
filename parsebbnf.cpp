@@ -148,32 +148,32 @@ static TOKEN getToken() {
 // Grammar AST Nodes //
 //-------------------//
 
+// Non-terminal or terminal in conjunct
+struct SYMBOL {
+    bool terminal;   // true if terminal, false if non-terminal
+    std::string str; // actual symbol
+};
+
+using SymbList = std::vector<SYMBOL>;
+
 class ASTNode {
     public:
         virtual ~ASTNode() {}
         virtual std::string toString(int depth) const {return "";};
+        virtual std::string getNt() const {return "";};
 };
 
 using Node = std::unique_ptr<ASTNode>;
 using NodeList = std::vector<Node>;
 
-// Non-terminal or terminal in conjunct
-class Symbol: public ASTNode {
-    bool Terminal;   // true if terminal, false if non-terminal
-    std::string Str; // actual symbol
-
-    public:
-        Symbol(bool terminal, std::string str): Terminal(terminal), Str(str) {}
-        virtual std::string toString(int depth) const override;
-};
-
 // Conjunct (list of symbols)
 class Conjunct: public ASTNode {
-    bool Pos;          // true if positive conjunct, false if negative
-    NodeList SymbList; // symbols making up conjunct
+    bool Pos;                            // true if positive conjunct, false if negative
+    SymbList Symbols;                    // symbols making up conjunct
+    std::set<std::string> NtsReferenced; // set of non-terminals used in conjunct
 
     public:
-        Conjunct(bool pos, NodeList symbList): Pos(pos), SymbList(std::move(symbList)) {}
+        Conjunct(bool pos, SymbList symbols, std::set<std::string> ntsReferenced): Pos(pos), Symbols(std::move(symbols)), NtsReferenced(ntsReferenced) {}
         virtual std::string toString(int depth) const override;
 };
 
@@ -194,15 +194,9 @@ class Disj: public ASTNode {
     public:
         Disj(std::string nt, NodeList ruleList): Nt(nt), RuleList(std::move(ruleList)) {}
         virtual std::string toString(int depth) const override;
-};
-
-// Full grammar (list of disjunctions)
-class Grammar: public ASTNode {
-    NodeList DisjList;
-
-    public:
-        Grammar(NodeList disjList): DisjList(std::move(disjList)) {}
-        virtual std::string toString(int depth) const override;
+        std::string getNt() const override {
+            return Nt;
+        }
 };
 
 //--------------------------//
@@ -241,24 +235,27 @@ bool match(TOKEN_TYPE tokType) {
 
 std::set<std::string> alphabet; // set of terminal symbols
 
-// symbol ::= NON_TERM | '"' STR_LIT '"'
-static Node parseSymbol() {
+// symbol ::= NON_TERM | '"' STR_LIT '"' | 'epsilon'
+static SYMBOL parseSymbol() {
     std::cout << "Parsing symbol\n";
-    bool terminal = true;
+    bool isTerminal = true;
     if (CurTok.type == NON_TERM)
-        terminal = false;
+        isTerminal = false;
     else if ((CurTok.type != STR_LIT) && (CurTok.type != EPSILON))
         parseError("non-terminal or literal"); // error if not NON_TERM, STR_LIT or EPSILON
 
     // Get symbol and add to alphabet if terminal
-    std::string str = CurTok.lexeme;
-    if (terminal)
-        alphabet.insert(str);
+    std::string symbStr = CurTok.lexeme;
+    if (isTerminal)
+        alphabet.insert(symbStr);
 
     getNextToken(); // move on to next token
 
     // Create & return new symbol
-    return std::make_unique<Symbol>(terminal, str);
+    SYMBOL symb;
+    symb.terminal = isTerminal;
+    symb.str = symbStr;
+    return symb;
 }
 
 // clist ::= '&' conjunct clist
@@ -273,12 +270,17 @@ static Node parseConj() {
     if (match(NEG))
         pos = false; // negative conjunct if preceded by '~'
 
-    // Add symbol to list until ampersand, pipe or semicolon reached
-    NodeList symbList;
+    /* Add symbol to list until ampersand, pipe or semicolon reached
+     * If symbol is non-terminal, add to set of non-terminals */
+    SymbList symbols;
+    std::set<std::string> ntsReferenced;
     do {
-        symbList.push_back(parseSymbol());
+        SYMBOL nextSymb = parseSymbol();
+        symbols.push_back(nextSymb);
+        if (!nextSymb.terminal)
+            ntsReferenced.insert(nextSymb.str);
     } while ((CurTok.type != CONJ) && (CurTok.type != DISJ) && (CurTok.type != SC));
-    return std::make_unique<Conjunct>(pos, std::move(symbList));
+    return std::make_unique<Conjunct>(pos, std::move(symbols), ntsReferenced);
 }
 
 // rlist ::= '|' rule rlist
@@ -326,20 +328,22 @@ static Node parseDisj() {
 // grammar ::= disjunction dlist
 // dlist ::= disjunction dlist
 //        |  epsilon
-static Node parseGrammar() {
-    getNextToken();    // get first token
-    NodeList disjList;
+static std::map<std::string, Node> parseGrammar() {
+    getNextToken();                       // get first token
+    std::map<std::string, Node> disjList; // map non-terminals to disjunctions
 
-    // Add disjunction to list until EOF reached
+    /* Add disjunction until EOF reached
+     * Obtain non-terminal to use as key */
     do {
-        disjList.push_back(parseDisj());
+        Node nextDisj = parseDisj();
+        disjList[nextDisj->getNt()] = std::move(nextDisj);
     } while (!match(EOF_TOK));
-    return std::make_unique<Grammar>(std::move(disjList));
+    return disjList;
 }
 
-//-------------//
-// AST Printer //
-//-------------//
+//---------------------//
+// Grammar AST Printer //
+//---------------------//
 
 // Make indentation of given width
 std::string makeIndent(int depth) {
@@ -351,7 +355,7 @@ std::string makeIndent(int depth) {
     return indent;
 }
 
-// Convert a NodeList to a string
+// Convert NodeList to string
 std::string nlString(const NodeList& list, int depth) {
     std::string result = "";
     for (const Node& i : list) {
@@ -362,14 +366,14 @@ std::string nlString(const NodeList& list, int depth) {
 }
 
 // Print symbol
-std::string Symbol::toString(int depth) const {
+std::string printSymb(const SYMBOL& symbol, int depth) {
     std::string term;
-    if (Terminal)
+    if (symbol.terminal)
         term = "";
     else
         term = "NON-";
 
-    return makeIndent(depth) + term + "TERMINAL: " + Str + "\n";
+    return makeIndent(depth) + term + "TERMINAL: " + symbol.str + "\n";
 }
 
 // Print conjunct
@@ -380,7 +384,11 @@ std::string Conjunct::toString(int depth) const {
     else
         posOrNeg = "-VE";
 
-    return makeIndent(depth) + posOrNeg + " CONJUNCT:\n" + nlString(SymbList, depth + 1);
+    std::string result = makeIndent(depth) + posOrNeg + " CONJUNCT:\n";
+    for (const SYMBOL& i : Symbols) {
+        result += printSymb(i, depth + 1);
+    }
+    return result;
 }
 
 // Print rule
@@ -391,11 +399,6 @@ std::string Rule::toString(int depth) const {
 // Print disjunction
 std::string Disj::toString(int depth) const {
     return makeIndent(depth) + "NON-TERMINAL " + Nt + "\n" + nlString(RuleList, depth + 1);
-}
-
-// Print grammar
-std::string Grammar::toString(int depth) const {
-    return nlString(DisjList, depth);
 }
 
 //-------------//
@@ -420,7 +423,11 @@ int main(int argc, char **argv) {
     // Run parser
     auto grammar = parseGrammar();
     std::cout << "Parsing finished\n";
-    std::cout << grammar->toString(0);
+    std::string grammarStr = "";
+    for (const auto& i : grammar) {
+        grammarStr += i.second->toString(1);
+    }
+    std::cout << grammarStr;
     fclose(bbnfFile);
     return 0;
 }
