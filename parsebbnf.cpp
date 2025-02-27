@@ -155,12 +155,14 @@ struct SYMBOL {
 };
 
 using SymbList = std::vector<SYMBOL>;
+using StrSet = std::set<std::string>;
 
 class ASTNode {
     public:
         virtual ~ASTNode() {}
         virtual std::string toString(int depth) const {return "";};
         virtual std::string getNt() const {return "";};
+        virtual StrSet references() const {return StrSet();};
 };
 
 using Node = std::unique_ptr<ASTNode>;
@@ -170,11 +172,12 @@ using NodeList = std::vector<Node>;
 class Conjunct: public ASTNode {
     bool Pos;                            // true if positive conjunct, false if negative
     SymbList Symbols;                    // symbols making up conjunct
-    std::set<std::string> NtsReferenced; // set of non-terminals used in conjunct
+    StrSet NtsReferenced; // set of non-terminals used in conjunct
 
     public:
-        Conjunct(bool pos, SymbList symbols, std::set<std::string> ntsReferenced): Pos(pos), Symbols(std::move(symbols)), NtsReferenced(ntsReferenced) {}
+        Conjunct(bool pos, SymbList symbols, StrSet ntsReferenced): Pos(pos), Symbols(std::move(symbols)), NtsReferenced(ntsReferenced) {}
         virtual std::string toString(int depth) const override;
+        virtual StrSet references() const override;
 };
 
 // Rule (list of conjuncts)
@@ -184,6 +187,7 @@ class Rule: public ASTNode {
     public:
         Rule(NodeList conjList): ConjList(std::move(conjList)) {}
         virtual std::string toString(int depth) const override;
+        virtual StrSet references() const override;
 };
 
 // Disjunction (non-terminal and list of rules derived by this non-terminal)
@@ -194,9 +198,8 @@ class Disj: public ASTNode {
     public:
         Disj(std::string nt, NodeList ruleList): Nt(nt), RuleList(std::move(ruleList)) {}
         virtual std::string toString(int depth) const override;
-        std::string getNt() const override {
-            return Nt;
-        }
+        std::string getNt() const override {return Nt;}
+        virtual StrSet references() const override;
 };
 
 //--------------------------//
@@ -233,7 +236,7 @@ bool match(TOKEN_TYPE tokType) {
     return false; // do not move on, current token will likely be checked again
 }
 
-std::set<std::string> alphabet; // set of terminal symbols
+StrSet alphabet; // set of terminal symbols
 
 // symbol ::= NON_TERM | '"' STR_LIT '"' | 'epsilon'
 static SYMBOL parseSymbol() {
@@ -273,7 +276,7 @@ static Node parseConj() {
     /* Add symbol to list until ampersand, pipe or semicolon reached
      * If symbol is non-terminal, add to set of non-terminals */
     SymbList symbols;
-    std::set<std::string> ntsReferenced;
+    StrSet ntsReferenced;
     do {
         SYMBOL nextSymb = parseSymbol();
         symbols.push_back(nextSymb);
@@ -358,9 +361,9 @@ std::string makeIndent(int depth) {
 // Convert NodeList to string
 std::string nlString(const NodeList& list, int depth) {
     std::string result = "";
-    for (const Node& i : list) {
-        if (i != nullptr)
-            result += i->toString(depth); // convert each item and add to result string
+    for (const Node& n : list) {
+        if (n != nullptr)
+            result += n->toString(depth); // convert each item and add to result string
     }
     return result;
 }
@@ -385,8 +388,8 @@ std::string Conjunct::toString(int depth) const {
         posOrNeg = "-VE";
 
     std::string result = makeIndent(depth) + posOrNeg + " CONJUNCT:\n";
-    for (const SYMBOL& i : Symbols) {
-        result += printSymb(i, depth + 1);
+    for (const SYMBOL& s : Symbols) {
+        result += printSymb(s, depth + 1);
     }
     return result;
 }
@@ -400,6 +403,57 @@ std::string Rule::toString(int depth) const {
 std::string Disj::toString(int depth) const {
     return makeIndent(depth) + "NON-TERMINAL " + Nt + "\n" + nlString(RuleList, depth + 1);
 }
+
+// Get set of non-terminals used in conjunct
+StrSet Conjunct::references() const {
+    if (Pos)
+        return NtsReferenced;
+    else
+        return StrSet();
+}
+
+// Get set of non-terminals used in rule (union of conjuncts' sets of non-terminals)
+StrSet Rule::references() const {
+    StrSet ntsReferenced;
+    for (const Node& conj : ConjList) {
+        auto conjReferences = conj->references();
+        ntsReferenced.insert(conjReferences.cbegin(), conjReferences.cend());
+    }
+    return ntsReferenced;
+}
+
+// Get set of non-terminals used in disjunction (union of rules' sets of non-terminals)
+StrSet Disj::references() const {
+    StrSet ntsReferenced;
+    for (const Node& rule : RuleList) {
+        auto ruleReferences = rule->references();
+        ntsReferenced.insert(ruleReferences.cbegin(), ruleReferences.cend());
+    }
+    return ntsReferenced;
+}
+
+//std::map<std::string, bool> visited;
+//std::vector<std::string> ntOrder;
+//
+//void dfs(std::string nt) {
+//    visited[nt] = true;
+//    for (const std::string str : referencedNts[nt]) {
+//        if (!visited[str])
+//            dfs(str);
+//    }
+//    ntOrder.push_back(nt);
+//}
+//
+//void topologicalSort() {
+//    for (const auto& ref : referencedNts) {
+//        visited[ref.first] = false;
+//    }
+//
+//    for (const auto& nt : visited) {
+//        if (!nt.second)
+//            dfs(nt.first);
+//    }
+//}
 
 //-------------//
 // Main Driver //
@@ -420,14 +474,31 @@ int main(int argc, char **argv) {
     lineNo = 1;
     columnNo = 1;
 
-    // Run parser
+    // Parse input file
     auto grammar = parseGrammar();
     std::cout << "Parsing finished\n";
+    fclose(bbnfFile);
+
+    // Print AST of grammar
     std::string grammarStr = "";
-    for (const auto& i : grammar) {
-        grammarStr += i.second->toString(1);
+    for (const auto& disj : grammar) {
+        grammarStr += disj.second->toString(0);
     }
     std::cout << grammarStr;
-    fclose(bbnfFile);
+
+    std::map<std::string, StrSet> referencedNts;
+    std::string referencesStr = "";
+    for (const auto& disj : grammar) {
+        std::string nt = disj.first;
+        referencedNts[nt] = disj.second->references();
+        referencesStr += nt + ":";
+
+        for (const std::string str : referencedNts[nt]) {
+            referencesStr += " " + str;
+        }
+        referencesStr += "\n";
+    }
+    std::cout << referencesStr;
+
     return 0;
 }
