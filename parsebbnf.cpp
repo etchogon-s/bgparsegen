@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <deque>
 #include <iostream>
 #include <map>
@@ -154,8 +155,9 @@ struct SYMBOL {
     std::string str; // actual symbol
 };
 
-using SymbList = std::vector<SYMBOL>;
+using SymbVec = std::vector<SYMBOL>;
 using StrSet = std::set<std::string>;
+using StrVec = std::vector<std::string>;
 
 class ASTNode {
     public:
@@ -170,12 +172,12 @@ using NodeList = std::vector<Node>;
 
 // Conjunct (list of symbols)
 class Conjunct: public ASTNode {
-    bool Pos;                            // true if positive conjunct, false if negative
-    SymbList Symbols;                    // symbols making up conjunct
+    bool Pos;             // true if positive conjunct, false if negative
+    SymbVec Symbols;      // symbols making up conjunct
     StrSet NtsReferenced; // set of non-terminals used in conjunct
 
     public:
-        Conjunct(bool pos, SymbList symbols, StrSet ntsReferenced): Pos(pos), Symbols(std::move(symbols)), NtsReferenced(ntsReferenced) {}
+        Conjunct(bool pos, SymbVec symbols, StrSet ntsReferenced): Pos(pos), Symbols(std::move(symbols)), NtsReferenced(ntsReferenced) {}
         virtual std::string toString(int depth) const override;
         virtual StrSet references() const override;
 };
@@ -275,7 +277,7 @@ static Node parseConj() {
 
     /* Add symbol to list until ampersand, pipe or semicolon reached
      * If symbol is non-terminal, add to set of non-terminals */
-    SymbList symbols;
+    SymbVec symbols;
     StrSet ntsReferenced;
     do {
         SYMBOL nextSymb = parseSymbol();
@@ -432,28 +434,37 @@ StrSet Disj::references() const {
     return ntsReferenced;
 }
 
-//std::map<std::string, bool> visited;
-//std::vector<std::string> ntOrder;
-//
-//void dfs(std::string nt) {
-//    visited[nt] = true;
-//    for (const std::string str : referencedNts[nt]) {
-//        if (!visited[str])
-//            dfs(str);
-//    }
-//    ntOrder.push_back(nt);
-//}
-//
-//void topologicalSort() {
-//    for (const auto& ref : referencedNts) {
-//        visited[ref.first] = false;
-//    }
-//
-//    for (const auto& nt : visited) {
-//        if (!nt.second)
-//            dfs(nt.first);
-//    }
-//}
+StrSet visited; // visited non-terminals in "adjacency list"
+
+// Depth-first search on "adjacency list" of non-terminal references
+StrVec dfs(std::string nt, std::map<std::string, StrSet> referencedNts, StrVec ntOrder) {
+    visited.insert(nt); // mark non-terminal as visited
+
+    // Depth-first search on all non-terminals referenced by nt that are unvisited
+    for (const std::string str : referencedNts[nt]) {
+        if (visited.count(str) == 0)
+            ntOrder = dfs(str, referencedNts, ntOrder);
+    }
+    
+    // Add nt to ordering
+    ntOrder.push_back(nt);
+    return ntOrder;
+}
+
+// Topological sort for non-terminals
+StrVec topologicalSort(std::map<std::string, StrSet> referencedNts) {
+    StrVec ntOrder;
+
+    // Start depth-first search
+    for (const auto& nt : referencedNts) {
+        if (visited.count(nt.first) == 0)
+            ntOrder = dfs(nt.first, referencedNts, ntOrder);
+    }
+
+    // Reverse vector to obtain topological ordering
+    std::reverse(ntOrder.begin(), ntOrder.end());
+    return ntOrder;
+}
 
 //-------------//
 // Main Driver //
@@ -486,19 +497,26 @@ int main(int argc, char **argv) {
     }
     std::cout << grammarStr;
 
-    std::map<std::string, StrSet> referencedNts;
+    /* Map each non-terminal to set of non-terminals used in rules derived from this symbol
+     * Print mappings */
+    std::map<std::string, StrSet> referencedNts; // "adjacency list" of non-terminals
     std::string referencesStr = "";
     for (const auto& disj : grammar) {
         std::string nt = disj.first;
         referencedNts[nt] = disj.second->references();
         referencesStr += nt + ":";
 
+        // Print each symbol in this non-terminal's set
         for (const std::string str : referencedNts[nt]) {
             referencesStr += " " + str;
         }
         referencesStr += "\n";
     }
     std::cout << referencesStr;
+
+    StrVec ntOrder = topologicalSort(referencedNts);
+    for (const std::string s : ntOrder)
+        std::cout << s + "\n";
 
     return 0;
 }
