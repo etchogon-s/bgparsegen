@@ -163,8 +163,8 @@ class ASTNode {
     public:
         virtual ~ASTNode() {}
         virtual std::string toString(int depth) const {return "";};
-        virtual std::string getNt() const {return "";};
         virtual StrSet references() const {return StrSet();};
+        virtual StrSet firstSet() const {return StrSet();};
 };
 
 using Node = std::unique_ptr<ASTNode>;
@@ -180,6 +180,7 @@ class Conjunct: public ASTNode {
         Conjunct(bool pos, SymbVec symbols, StrSet ntsReferenced): Pos(pos), Symbols(std::move(symbols)), NtsReferenced(ntsReferenced) {}
         virtual std::string toString(int depth) const override;
         virtual StrSet references() const override;
+        virtual StrSet firstSet() const override;
 };
 
 // Rule (list of conjuncts)
@@ -190,18 +191,18 @@ class Rule: public ASTNode {
         Rule(NodeList conjList): ConjList(std::move(conjList)) {}
         virtual std::string toString(int depth) const override;
         virtual StrSet references() const override;
+        virtual StrSet firstSet() const override;
 };
 
-// Disjunction (non-terminal and list of rules derived by this non-terminal)
+// Disjunction (list of rules derived by a non-terminal)
 class Disj: public ASTNode {
-    std::string Nt;
     NodeList RuleList;
 
     public:
-        Disj(std::string nt, NodeList ruleList): Nt(nt), RuleList(std::move(ruleList)) {}
+        Disj(NodeList ruleList): RuleList(std::move(ruleList)) {}
         virtual std::string toString(int depth) const override;
-        std::string getNt() const override {return Nt;}
         virtual StrSet references() const override;
+        virtual StrSet firstSet() const override;
 };
 
 //--------------------------//
@@ -305,21 +306,10 @@ static Node parseRule() {
 
 // disjunction ::= NON_TERM '->' rule rlist ';'
 static Node parseDisj() {
-    std::cout << "Parsing disjunction\n";
-    // If current token is a non-terminal, move on to next token; if not, error
-    std::string nt = CurTok.lexeme;
-    if (CurTok.type == NON_TERM)
-        getNextToken();
-    else
-        parseError("non-terminal");
-
-    // Syntax error if non-terminal not followed by '->'
-    if (!match(DERIVE))
-        parseError("'->'");
+    NodeList ruleList;
 
     /* Pipe follows every rule except last rule in list
      * Add rule to list until rule not followed by pipe */
-    NodeList ruleList;
     do {
         ruleList.push_back(parseRule());
     } while (match(DISJ));
@@ -327,21 +317,34 @@ static Node parseDisj() {
     // Disjunction must be terminated with semicolon
     if (!match(SC))
         parseError("';'");
-    return std::make_unique<Disj>(nt, std::move(ruleList));
+    return std::make_unique<Disj>(std::move(ruleList));
 }
 
 // grammar ::= disjunction dlist
 // dlist ::= disjunction dlist
 //        |  epsilon
+// disjunction ::= NON_TERM '->' rule rlist ';'
 static std::map<std::string, Node> parseGrammar() {
     getNextToken();                       // get first token
     std::map<std::string, Node> disjList; // map non-terminals to disjunctions
 
-    /* Add disjunction until EOF reached
-     * Obtain non-terminal to use as key */
+    // Add disjunction until EOF reached
     do {
+        std::cout << "Parsing disjunction\n";
+
+        // If current token is a non-terminal, move on to next token; if not, error
+        std::string nt = CurTok.lexeme;
+        if (CurTok.type == NON_TERM)
+            getNextToken();
+        else
+            parseError("non-terminal");
+
+        // Syntax error if non-terminal not followed by '->'
+        if (!match(DERIVE))
+            parseError("'->'");
+
         Node nextDisj = parseDisj();
-        disjList[nextDisj->getNt()] = std::move(nextDisj);
+        disjList[nt] = std::move(nextDisj);
     } while (!match(EOF_TOK));
     return disjList;
 }
@@ -403,8 +406,12 @@ std::string Rule::toString(int depth) const {
 
 // Print disjunction
 std::string Disj::toString(int depth) const {
-    return makeIndent(depth) + "NON-TERMINAL " + Nt + "\n" + nlString(RuleList, depth + 1);
+    return makeIndent(depth) + nlString(RuleList, depth + 1);
 }
+
+//--------------------//
+// Compute FIRST sets //
+//--------------------//
 
 // Get set of non-terminals used in conjunct
 StrSet Conjunct::references() const {
@@ -434,16 +441,19 @@ StrSet Disj::references() const {
     return ntsReferenced;
 }
 
-StrSet visited; // visited non-terminals in "adjacency list"
+/* "Adjacency list" of non-terminal references
+ * Each non-terminal mapped to set of non-terminals used in rules derived from it */
+std::map<std::string, StrSet> referencedNts;
 
-// Depth-first search on "adjacency list" of non-terminal references
-StrVec dfs(std::string nt, std::map<std::string, StrSet> referencedNts, StrVec ntOrder) {
+// Depth-first search on adjacency list
+StrSet visited;
+StrVec dfs(std::string nt, StrVec ntOrder) {
     visited.insert(nt); // mark non-terminal as visited
 
     // Depth-first search on all non-terminals referenced by nt that are unvisited
     for (const std::string str : referencedNts[nt]) {
         if (visited.count(str) == 0)
-            ntOrder = dfs(str, referencedNts, ntOrder);
+            ntOrder = dfs(str, ntOrder);
     }
     
     // Add nt to ordering
@@ -452,18 +462,15 @@ StrVec dfs(std::string nt, std::map<std::string, StrSet> referencedNts, StrVec n
 }
 
 // Topological sort for non-terminals
-StrVec topologicalSort(std::map<std::string, StrSet> referencedNts) {
+StrVec topologicalSort() {
     StrVec ntOrder;
 
     // Start depth-first search
     for (const auto& nt : referencedNts) {
         if (visited.count(nt.first) == 0)
-            ntOrder = dfs(nt.first, referencedNts, ntOrder);
+            ntOrder = dfs(nt.first, ntOrder);
     }
-
-    // Reverse vector to obtain topological ordering
-    std::reverse(ntOrder.begin(), ntOrder.end());
-    return ntOrder;
+    return ntOrder; // return topological ordering
 }
 
 //-------------//
@@ -493,13 +500,12 @@ int main(int argc, char **argv) {
     // Print AST of grammar
     std::string grammarStr = "";
     for (const auto& disj : grammar) {
-        grammarStr += disj.second->toString(0);
+        grammarStr += "TERMINAL " + disj.first + "\n" + disj.second->toString(0);
     }
     std::cout << grammarStr;
 
-    /* Map each non-terminal to set of non-terminals used in rules derived from this symbol
+    /* Build adjacency list: map each non-terminal to its set of non-terminal references
      * Print mappings */
-    std::map<std::string, StrSet> referencedNts; // "adjacency list" of non-terminals
     std::string referencesStr = "";
     for (const auto& disj : grammar) {
         std::string nt = disj.first;
@@ -514,7 +520,8 @@ int main(int argc, char **argv) {
     }
     std::cout << referencesStr;
 
-    StrVec ntOrder = topologicalSort(referencedNts);
+    // Topological ordering of non-terminals
+    StrVec ntOrder = topologicalSort();
     for (const std::string s : ntOrder)
         std::cout << s + "\n";
 
