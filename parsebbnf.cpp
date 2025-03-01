@@ -43,7 +43,6 @@ static TOKEN returnToken(std::string lexVal, int tokType) {
     tok.type = tokType;
     tok.lineNo = lineNo;
     tok.columnNo = columnNo - lexVal.length() - 1;
-    std::cout << "Found token " + lexVal + " type " + std::to_string(tokType) + "\n";
     return tok;
 }
 
@@ -100,7 +99,7 @@ static TOKEN getToken() {
         }
 
         if (currentStr == "epsilon")
-            return returnToken(currentStr, EPSILON);
+            return returnToken("", EPSILON);
         return returnToken(currentStr, NON_TERM);
     }
 
@@ -241,11 +240,10 @@ bool match(TOKEN_TYPE tokType) {
     return false; // do not move on, current token will likely be checked again
 }
 
-StrSet alphabet; // set of terminal symbols
+StrSet alphabet = {""}; // set of terminal symbols; include epsilon (empty string)
 
 // symbol ::= NON_TERM | '"' STR_LIT '"' | 'epsilon'
 static SYMBOL parseSymbol() {
-    std::cout << "Parsing symbol\n";
     int symbType = CurTok.type;
     if ((symbType != NON_TERM) && (symbType != STR_LIT) && (symbType != EPSILON))
         parseError("non-terminal or literal");
@@ -271,7 +269,6 @@ static SYMBOL parseSymbol() {
 // slist ::= symbol slist
 //        |  epsilon
 static Node parseConj() {
-    std::cout << "Parsing conjunct\n";
     bool pos = true; // assume positive conjunct
     if (match(NEG))
         pos = false; // negative conjunct if preceded by '~'
@@ -299,7 +296,6 @@ static Node parseConj() {
 //        |  epsilon
 // rule ::= conjunct clist
 static Node parseRule() {
-    std::cout << "Parsing rule\n";
     NodeList conjList;
 
     /* Ampersand follows every conjunct except last conjunct in list
@@ -336,8 +332,6 @@ static std::map<std::string, Node> parseGrammar() {
 
     // Add disjunction until EOF reached
     do {
-        std::cout << "Parsing disjunction\n";
-
         // If current token is a non-terminal, move on to next token; if not, error
         std::string nt = CurTok.lexeme;
         if (CurTok.type == NON_TERM)
@@ -397,8 +391,8 @@ std::string Conjunct::toString(int depth) const {
         posOrNeg = "-VE";
 
     std::string result = makeIndent(depth) + posOrNeg + " CONJUNCT:\n";
-    for (const SYMBOL& s : Symbols) {
-        result += printSymb(s, depth + 1);
+    for (const SYMBOL& symb : Symbols) {
+        result += printSymb(symb, depth + 1);
     }
     return result;
 }
@@ -455,9 +449,9 @@ StrVec dfs(std::string nt, StrVec ntOrder) {
     visited.insert(nt); // mark non-terminal as visited
 
     // Depth-first search on all non-terminals referenced by nt that are unvisited
-    for (const std::string str : referencedNts[nt]) {
-        if (visited.count(str) == 0)
-            ntOrder = dfs(str, ntOrder);
+    for (const std::string& s : referencedNts[nt]) {
+        if (visited.count(s) == 0)
+            ntOrder = dfs(s, ntOrder);
     }
     
     // Add nt to ordering
@@ -475,6 +469,80 @@ StrVec topologicalSort() {
             ntOrder = dfs(nt.first, ntOrder);
     }
     return ntOrder; // return topological ordering
+}
+
+//--------------------//
+// Compute FIRST sets //
+//--------------------//
+
+std::map<std::string, StrSet> firstSets; // maps each non-terminal to its FIRST set
+
+// FIRST set of conjunct
+StrSet Conjunct::firstSet() const {
+    StrSet firsts;
+    if (!Pos) {
+        firsts = alphabet; // if conjunct is negative, FIRST set is FIRST(alphabet*)
+        return firsts;
+    }
+
+    /* If the first symbol in the conjunct is epsilon, this is the conjunct's only symbol
+     * The conjunct's FIRST set contains epsilon only */
+    if (Symbols.front().type == EPSILON) {
+        firsts.insert(""); // epsilon = empty string
+        return firsts;
+    }
+
+    // Add to FIRST set until a non-nullable symbol is reached in the conjunct
+    bool nullable;
+    for (const SYMBOL& symb : Symbols) {
+        // Terminal is non-nullable, so FIRST set is complete after adding it
+        if (symb.type == STR_LIT) {
+            firsts.insert(symb.str);
+            return firsts;
+        }
+
+        /* If s is a non-terminal, add every symbol in its own FIRST set
+         * If s's FIRST set contains epsilon, s is nullable
+         * If s is non-nullable, stop adding; otherwise go on to next symbol */
+        nullable = false;
+        if (symb.type == NON_TERM) {
+            for (const std::string& s : firstSets[symb.str]) {
+                firsts.insert(s);
+                if (s == "")
+                    nullable = true;
+            }
+            if (!nullable)
+                return firsts;
+        }
+    }
+    return firsts; // all symbols in the conjunct are nullable
+}
+
+// FIRST set of rule (intersection of conjuncts' FIRST sets)
+StrSet Rule::firstSet() const {
+    StrSet firsts = alphabet; // start with entire alphabet
+
+    // For each conjunct, remove items that are not in the conjunct's FIRST set
+    for (const Node& conj : ConjList) {
+        StrSet conjFirsts = conj->firstSet();
+        for (auto it = firsts.begin(); it != firsts.end();) {
+            if (!conjFirsts.contains(*it))
+                it = firsts.erase(it);
+            else
+                it++;
+        }
+    }
+    return firsts;
+}
+
+// FIRST set of disjunction (union of rules' FIRST sets)
+StrSet Disj::firstSet() const {
+    StrSet firsts;
+    for (const Node& rule : RuleList) {
+        StrSet ruleFirsts = rule->firstSet();
+        firsts.insert(ruleFirsts.cbegin(), ruleFirsts.cend());
+    }
+    return firsts;
 }
 
 //-------------//
@@ -497,8 +565,8 @@ int main(int argc, char **argv) {
     columnNo = 1;
 
     // Parse input file
-    auto grammar = parseGrammar();
-    std::cout << "Parsing finished\n";
+    std::map<std::string, Node> grammar = parseGrammar();
+    std::cout << "Parsing Finished\n";
     fclose(bbnfFile);
 
     // Print AST of grammar
@@ -517,17 +585,45 @@ int main(int argc, char **argv) {
         referencesStr += nt + ":";
 
         // Print each symbol in this non-terminal's set
-        for (const std::string str : referencedNts[nt]) {
-            referencesStr += " " + str;
+        for (const std::string& s : referencedNts[nt]) {
+            referencesStr += " " + s;
         }
         referencesStr += "\n";
     }
-    std::cout << referencesStr;
+    std::cout << "\nReferenced Non-Terminals\n" + referencesStr;
 
     // Topological ordering of non-terminals
     StrVec ntOrder = topologicalSort();
-    for (const std::string s : ntOrder)
-        std::cout << s + "\n";
+    std::cout << "\nOrder of Computing FIRST sets:";
+    for (const std::string& s : ntOrder)
+        std::cout << " " + s;
+    std::cout << "\n";
+
+    std::string alphabetStr = "";
+    for (const std::string& s : alphabet) {
+        alphabetStr += " ";
+        if (s == "")
+            alphabetStr += "epsilon";
+        else
+            alphabetStr += s;
+    }
+    std::cout << "Alphabet:" + alphabetStr + "\n";
+
+    std::string firstSetsStr = "";
+    for (const std::string& s : ntOrder) {
+        firstSets[s] = grammar[s]->firstSet();
+        firstSetsStr += s + ":";
+
+        for (const std::string& st : firstSets[s]) {
+            firstSetsStr += " ";
+            if (st == "")
+                firstSetsStr += "epsilon";
+            else
+                firstSetsStr += st;
+        }
+        firstSetsStr += "\n";
+    }
+    std::cout << "\nFIRST Sets\n" + firstSetsStr;
 
     return 0;
 }
