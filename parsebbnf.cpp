@@ -153,8 +153,7 @@ static TOKEN getToken() {
 
 // Non-terminal or terminal in conjunct
 struct SYMBOL {
-    bool terminal;   // true if terminal, false if non-terminal
-    int type;        // same as symbol's token type
+    int type;        // same as symbol's token type (terminal, non-terminal, epsilon)
     std::string str; // actual symbol
 };
 
@@ -247,23 +246,19 @@ StrSet alphabet; // set of terminal symbols
 // symbol ::= NON_TERM | '"' STR_LIT '"' | 'epsilon'
 static SYMBOL parseSymbol() {
     std::cout << "Parsing symbol\n";
-    bool isTerminal = true;
     int symbType = CurTok.type;
-    if (symbType == NON_TERM)
-        isTerminal = false;
-    else if ((symbType != STR_LIT) && (symbType != EPSILON))
-        parseError("non-terminal or literal"); // error if not NON_TERM, STR_LIT or EPSILON
+    if ((symbType != NON_TERM) && (symbType != STR_LIT) && (symbType != EPSILON))
+        parseError("non-terminal or literal");
 
     // Get symbol and add to alphabet if terminal
     std::string symbStr = CurTok.lexeme;
-    if (isTerminal)
+    if (symbType == STR_LIT)
         alphabet.insert(symbStr);
 
     getNextToken(); // move on to next token
 
     // Create & return new symbol
     SYMBOL symb;
-    symb.terminal = isTerminal;
     symb.type = symbType;
     symb.str = symbStr;
     return symb;
@@ -288,10 +283,12 @@ static Node parseConj() {
     do {
         SYMBOL nextSymb = parseSymbol();
         symbols.push_back(nextSymb);
-        if (!nextSymb.terminal)
+        if (nextSymb.type == NON_TERM)
             ntsReferenced.insert(nextSymb.str);
     } while ((CurTok.type != CONJ) && (CurTok.type != DISJ) && (CurTok.type != SC));
 
+    /* If list of symbols is longer than 1 and contains epsilons, these are redundant
+     * Remove all redundant epsilons from list */
     size_t epsilonSize = 1;
     if (symbols.size() > epsilonSize)
         std::erase_if(symbols, [](SYMBOL symb) { return symb.type == EPSILON; });
@@ -384,10 +381,8 @@ std::string nlString(const NodeList& list, int depth) {
 
 // Print symbol
 std::string printSymb(const SYMBOL& symbol, int depth) {
-    std::string term;
-    if (symbol.terminal)
-        term = "";
-    else
+    std::string term = "";
+    if (symbol.type == NON_TERM)
         term = "NON-";
 
     return makeIndent(depth) + term + "TERMINAL: " + symbol.str + "\n";
