@@ -83,6 +83,8 @@ static TOKEN getToken() {
         // Set currentChar to character following closing ", and return string literal token
         currentChar = fgetc(bbnfFile);
         columnNo++;
+        if (currentStr == "")
+            return returnToken(currentStr, EPSILON); // epsilon = empty string
         return returnToken(currentStr, STR_LIT);
     }
 
@@ -152,6 +154,7 @@ static TOKEN getToken() {
 // Non-terminal or terminal in conjunct
 struct SYMBOL {
     bool terminal;   // true if terminal, false if non-terminal
+    int type;        // same as symbol's token type
     std::string str; // actual symbol
 };
 
@@ -245,9 +248,10 @@ StrSet alphabet; // set of terminal symbols
 static SYMBOL parseSymbol() {
     std::cout << "Parsing symbol\n";
     bool isTerminal = true;
-    if (CurTok.type == NON_TERM)
+    int symbType = CurTok.type;
+    if (symbType == NON_TERM)
         isTerminal = false;
-    else if ((CurTok.type != STR_LIT) && (CurTok.type != EPSILON))
+    else if ((symbType != STR_LIT) && (symbType != EPSILON))
         parseError("non-terminal or literal"); // error if not NON_TERM, STR_LIT or EPSILON
 
     // Get symbol and add to alphabet if terminal
@@ -260,6 +264,7 @@ static SYMBOL parseSymbol() {
     // Create & return new symbol
     SYMBOL symb;
     symb.terminal = isTerminal;
+    symb.type = symbType;
     symb.str = symbStr;
     return symb;
 }
@@ -286,6 +291,10 @@ static Node parseConj() {
         if (!nextSymb.terminal)
             ntsReferenced.insert(nextSymb.str);
     } while ((CurTok.type != CONJ) && (CurTok.type != DISJ) && (CurTok.type != SC));
+
+    size_t epsilonSize = 1;
+    if (symbols.size() > epsilonSize)
+        std::erase_if(symbols, [](SYMBOL symb) { return symb.type == EPSILON; });
     return std::make_unique<Conjunct>(pos, std::move(symbols), ntsReferenced);
 }
 
@@ -409,9 +418,9 @@ std::string Disj::toString(int depth) const {
     return makeIndent(depth) + nlString(RuleList, depth + 1);
 }
 
-//--------------------//
-// Compute FIRST sets //
-//--------------------//
+//----------------------------------------------//
+// Sort Non-Terminals for FIRST Set Computation //
+//----------------------------------------------//
 
 // Get set of non-terminals used in conjunct
 StrSet Conjunct::references() const {
