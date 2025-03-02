@@ -379,34 +379,36 @@ std::string nlString(const NodeList& list, int depth) {
 
 // Print symbol
 std::string printSymb(const SYMBOL& symbol, int depth) {
-    std::string term = "";
+    std::string result = makeIndent(depth);
     if (symbol.type == NON_TERM)
-        term = "NON-";
-
-    return makeIndent(depth) + term + "TERMINAL: " + symbol.str + "\n";
+        result += "NON-";
+    result += "TERMINAL: ";
+    if (symbol.str == "")
+        result += "epsilon"; // represents empty string
+    else
+        result += symbol.str;
+    return result + "\n";
 }
 
-// Print conjunct
+// Print conjunct (show whether positive or negative, and print sequence of symbols)
 std::string Conjunct::toString(int depth) const {
-    std::string posOrNeg;
+    std::string result = makeIndent(depth);
     if (Pos)
-        posOrNeg = "+VE";
+        result += "+VE";
     else
-        posOrNeg = "-VE";
-
-    std::string result = makeIndent(depth) + posOrNeg + " CONJUNCT:\n";
-    for (const SYMBOL& symb : Symbols) {
+        result += "-VE";
+    result += " CONJUNCT:\n";
+    for (const SYMBOL& symb : Symbols)
         result += printSymb(symb, depth + 1);
-    }
     return result;
 }
 
-// Print rule
+// Print rule (series of conjuncts)
 std::string Rule::toString(int depth) const {
     return makeIndent(depth) + "RULE:\n" + nlString(ConjList, depth + 1);
 }
 
-// Print disjunction
+// Print disjunction (series of rules)
 std::string Disj::toString(int depth) const {
     return makeIndent(depth) + nlString(RuleList, depth + 1);
 }
@@ -628,7 +630,7 @@ std::string strSetString(StrSet strs) {
     for (const std::string& s : strs) {
         result += " ";
         if (s == "")
-            result += "epsilon";
+            result += "epsilon"; // represents empty string
         else
             result += s;
     }
@@ -650,95 +652,55 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    // Initialise line and column numbers
-    lineNo = 1;
-    columnNo = 1;
-
     // Parse input file
+    lineNo = 1;
+    columnNo = 1; // initialise line & column numbers
     std::map<std::string, Node> grammar = parseGrammar();
-    std::cout << "Parsing Finished\n";
     fclose(bbnfFile);
+    std::cout << "Alphabet:" + strSetString(alphabet) + "\n\n"; // print alphabet
 
     // Print AST of grammar
-    std::string grammarStr = "";
-    for (const auto& disj : grammar) {
-        grammarStr += "TERMINAL " + disj.first + "\n" + disj.second->toString(0);
-    }
-    std::cout << grammarStr;
+    for (const auto& disj : grammar)
+        std::cout << "TERMINAL " + disj.first + "\n" + disj.second->toString(0);
 
     /* Build adjacency list: map each non-terminal to its set of non-terminal references
      * Print mappings */
-    std::string referencesStr = "";
+    std::cout << "\nReferenced Non-Terminals\n";
     for (const auto& disj : grammar) {
         std::string nt = disj.first;
         referencedNts[nt] = disj.second->references();
-        referencesStr += nt + ":";
-
-        // Print each symbol in this non-terminal's set
-        for (const std::string& s : referencedNts[nt]) {
-            referencesStr += " " + s;
-        }
-        referencesStr += "\n";
+        std::cout << nt + ":" + strSetString(referencedNts[nt]) + "\n";
     }
-    std::cout << "\nReferenced Non-Terminals\n" + referencesStr;
 
-    // Topological ordering of non-terminals
+    // Compute topological ordering of non-terminals and print non-terminals in this order
     StrVec ntOrder = topologicalSort();
     std::cout << "\nOrder of Computing FIRST Sets:";
     for (const std::string& s : ntOrder)
         std::cout << " " + s;
     std::cout << "\n";
 
-    std::string alphabetStr = "";
-    for (const std::string& s : alphabet) {
-        alphabetStr += " ";
-        if (s == "")
-            alphabetStr += "epsilon";
-        else
-            alphabetStr += s;
-    }
-    std::cout << "Alphabet:" + alphabetStr + "\n";
-
-    std::string firstSetsStr = "";
+    // Compute and print FIRST sets of non-terminals (in topological order)
+    std::cout << "\nFIRST Sets\n";
     for (const std::string& s : ntOrder) {
         firstSets[s] = grammar[s]->firstSet();
-        firstSetsStr += s + ":";
-
-        for (const std::string& st : firstSets[s]) {
-            firstSetsStr += " ";
-            if (st == "")
-                firstSetsStr += "epsilon";
-            else
-                firstSetsStr += st;
-        }
-        firstSetsStr += "\n";
+        std::cout << s + ":" + strSetString(firstSets[s]) + "\n";
     }
-    std::cout << "\nFIRST Sets\n" + firstSetsStr;
 
-    std::reverse(ntOrder.begin(), ntOrder.end());
+    // Compute FOLLOW sets of non-terminals
+    std::reverse(ntOrder.begin(), ntOrder.end()); // reverse order of non-terminals
     for (size_t i = 0; i < ntOrder.size(); i++) {
         const std::string& s = ntOrder[i];
-        if (i == 0) {
+        if (i == 0) { // first symbol in ordering is start symbol
             followSets[s] = StrSet();
-            followSets[s].insert("");
+            followSets[s].insert(""); // FOLLOW set of start symbol is just epsilon
         }
         grammar[s]->followAdd(s);
     }
 
-    std::string followSetsStr = "";
-    for (const std::string& s : ntOrder) {
-        followSetsStr += s + ":";
-
-        for (const std::string& st : followSets[s]) {
-            followSetsStr += " ";
-            if (st == "")
-                followSetsStr += "epsilon";
-            else
-                followSetsStr += st;
-        }
-        followSetsStr += "\n";
-    }
-    std::cout << "\nFOLLOW Sets\n" + followSetsStr;
+    // Print FOLLOW sets
+    std::cout << "\nFOLLOW Sets\n";
+    for (const std::string& s : ntOrder)
+        std::cout << s + ":" + strSetString(followSets[s]) + "\n";
 
     return 0;
 }
