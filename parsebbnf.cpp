@@ -52,7 +52,7 @@ static TOKEN getToken() {
 
     // Skip whitespace
     while (isspace(currentChar)) {
-        if (currentChar == '\n' || currentChar == '\r') {
+        if ((currentChar == '\n') || (currentChar == '\r')) {
             lineNo++;
             columnNo = 1; // new line starts after newline character
         }
@@ -93,7 +93,7 @@ static TOKEN getToken() {
         columnNo++;
 
         // Add characters to string until non-underscore/alphanumeric character reached
-        while(isalnum(currentChar = fgetc(bbnfFile)) || currentChar == '_') {
+        while(isalnum(currentChar = fgetc(bbnfFile)) || (currentChar == '_')) {
             currentStr += currentChar;
             columnNo++;
         }
@@ -166,6 +166,7 @@ class ASTNode {
         virtual std::string toString(int depth) const {return "";};
         virtual StrSet references() const {return StrSet();};
         virtual StrSet firstSet() const {return StrSet();};
+        virtual void followAdd(std::string nt) const {};
 };
 
 using Node = std::unique_ptr<ASTNode>;
@@ -182,6 +183,7 @@ class Conjunct: public ASTNode {
         virtual std::string toString(int depth) const override;
         virtual StrSet references() const override;
         virtual StrSet firstSet() const override;
+        virtual void followAdd(std::string nt) const override;
 };
 
 // Rule (list of conjuncts)
@@ -193,6 +195,7 @@ class Rule: public ASTNode {
         virtual std::string toString(int depth) const override;
         virtual StrSet references() const override;
         virtual StrSet firstSet() const override;
+        virtual void followAdd(std::string nt) const override;
 };
 
 // Disjunction (list of rules derived by a non-terminal)
@@ -204,6 +207,7 @@ class Disj: public ASTNode {
         virtual std::string toString(int depth) const override;
         virtual StrSet references() const override;
         virtual StrSet firstSet() const override;
+        virtual void followAdd(std::string nt) const override;
 };
 
 //--------------------------//
@@ -472,7 +476,7 @@ StrVec topologicalSort() {
 }
 
 //--------------------//
-// Compute FIRST sets //
+// Compute FIRST Sets //
 //--------------------//
 
 std::map<std::string, StrSet> firstSets; // maps each non-terminal to its FIRST set
@@ -545,6 +549,92 @@ StrSet Disj::firstSet() const {
     return firsts;
 }
 
+//---------------------//
+// Compute FOLLOW Sets //
+//---------------------//
+
+std::map<std::string, StrSet> followSets; // maps each non-terminal to its FOLLOW set
+
+// Build FOLLOW sets of non-terminals used in conjunct
+void Conjunct::followAdd(std::string nt) const {
+    size_t conjSize = Symbols.size();
+    size_t nextIndex;
+    bool nonNullableFound;
+
+    // Iterate over symbols in conjunct to find non-terminals
+    for (size_t i = 0; i < conjSize; i++) {
+        const SYMBOL& current = Symbols[i];
+
+        // If symbol is non-terminal, look at subsequent symbols to add to its FOLLOW set
+        if (current.type == NON_TERM) {
+            nextIndex = i + 1;
+            nonNullableFound = false;
+
+            // If current symbol's FOLLOW set doesn't exist yet, create it
+            if (followSets.count(current.str) == 0)
+                followSets[current.str] = StrSet();
+
+            /* Add to current symbol's FOLLOW set until a non-nullable symbol is found,
+             * or the end of the conjunct is reached */
+            while (!nonNullableFound && (nextIndex < conjSize)) {
+                const SYMBOL& next = Symbols[nextIndex];
+                if (next.type == STR_LIT) {
+                    followSets[current.str].insert(next.str); // put terminal in FOLLOW set
+                    nonNullableFound = true;                  // terminal is non-nullable
+
+                // If symbol is non-terminal, add its FIRST set to current's FOLLOW set
+                } else if (next.type == NON_TERM) {
+                    StrSet nextFirsts = firstSets[next.str];
+                    followSets[current.str].insert(nextFirsts.cbegin(), nextFirsts.cend());
+
+                    // Non-nullable if FIRST set does not contain epsilon/empty string
+                    if (!nextFirsts.contains(""))
+                        nonNullableFound = true;
+                }
+                nextIndex++; // go to next symbol
+            }
+
+            /* If all the symbols after the current symbol are nullable, add the FOLLOW set
+             * of the deriving non-terminal (if it is different from current) to current's
+             * FOLLOW set */
+            if (!nonNullableFound && (nt != current.str)) {
+                StrSet& ntFollowing = followSets[nt];
+                followSets[current.str].insert(ntFollowing.cbegin(), ntFollowing.cend());
+            }
+        }
+    }
+    return;
+}
+
+// Build FOLLOW sets of non-terminals used in rule (add to sets with each conjunct)
+void Rule::followAdd(std::string nt) const {
+    for (const Node& conj : ConjList) {
+        conj->followAdd(nt);
+    }
+    return;
+}
+
+// Build FOLLOW sets of non-terminals used in disjunction (add to sets with each rule)
+void Disj::followAdd(std::string nt) const {
+    for (const Node& rule : RuleList) {
+        rule->followAdd(nt);
+    }
+    return;
+}
+
+// Print elements of set of strings
+std::string strSetString(StrSet strs) {
+    std::string result = "";
+    for (const std::string& s : strs) {
+        result += " ";
+        if (s == "")
+            result += "epsilon";
+        else
+            result += s;
+    }
+    return result;
+}
+
 //-------------//
 // Main Driver //
 //-------------//
@@ -594,7 +684,7 @@ int main(int argc, char **argv) {
 
     // Topological ordering of non-terminals
     StrVec ntOrder = topologicalSort();
-    std::cout << "\nOrder of Computing FIRST sets:";
+    std::cout << "\nOrder of Computing FIRST Sets:";
     for (const std::string& s : ntOrder)
         std::cout << " " + s;
     std::cout << "\n";
@@ -624,6 +714,31 @@ int main(int argc, char **argv) {
         firstSetsStr += "\n";
     }
     std::cout << "\nFIRST Sets\n" + firstSetsStr;
+
+    std::reverse(ntOrder.begin(), ntOrder.end());
+    for (size_t i = 0; i < ntOrder.size(); i++) {
+        const std::string& s = ntOrder[i];
+        if (i == 0) {
+            followSets[s] = StrSet();
+            followSets[s].insert("");
+        }
+        grammar[s]->followAdd(s);
+    }
+
+    std::string followSetsStr = "";
+    for (const std::string& s : ntOrder) {
+        followSetsStr += s + ":";
+
+        for (const std::string& st : followSets[s]) {
+            followSetsStr += " ";
+            if (st == "")
+                followSetsStr += "epsilon";
+            else
+                followSetsStr += st;
+        }
+        followSetsStr += "\n";
+    }
+    std::cout << "\nFOLLOW Sets\n" + followSetsStr;
 
     return 0;
 }
