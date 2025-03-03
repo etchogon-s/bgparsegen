@@ -5,6 +5,7 @@
 #include <memory>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 //-------//
@@ -165,11 +166,13 @@ class ASTNode {
         virtual ~ASTNode() {}
         virtual std::string toString(int depth) const {return "";};
         virtual StrSet references() const {return StrSet();};
-        virtual StrSet firstSet() const {return StrSet();};
+        virtual StrSet firstSet() {return StrSet();};
         virtual void followAdd(std::string nt) const {};
+        virtual void updateTable(std::string nt) {};
+        virtual bool isNullable() const {return true;};
 };
 
-using Node = std::unique_ptr<ASTNode>;
+using Node = std::shared_ptr<ASTNode>;
 using NodeList = std::vector<Node>;
 
 // Conjunct (list of symbols)
@@ -177,25 +180,31 @@ class Conjunct: public ASTNode {
     bool Pos;             // true if positive conjunct, false if negative
     SymbVec Symbols;      // symbols making up conjunct
     StrSet NtsReferenced; // set of non-terminals used in conjunct
+    StrSet Firsts;        // FIRST set of conjunct
+    bool Nullable = true; // whether conjunct is nullable, i.e. all symbols are nullable
 
     public:
         Conjunct(bool pos, SymbVec symbols, StrSet ntsReferenced): Pos(pos), Symbols(std::move(symbols)), NtsReferenced(ntsReferenced) {}
         virtual std::string toString(int depth) const override;
         virtual StrSet references() const override;
-        virtual StrSet firstSet() const override;
+        virtual StrSet firstSet() override;
         virtual void followAdd(std::string nt) const override;
+        virtual bool isNullable() const override {return Nullable;};
 };
 
 // Rule (list of conjuncts)
 class Rule: public ASTNode {
     NodeList ConjList;
+    StrSet Firsts;        // FIRST set of rule
+    bool Nullable = true; // whether rule is nullable, i.e. all conjuncts are nullable
 
     public:
         Rule(NodeList conjList): ConjList(std::move(conjList)) {}
         virtual std::string toString(int depth) const override;
         virtual StrSet references() const override;
-        virtual StrSet firstSet() const override;
+        virtual StrSet firstSet() override;
         virtual void followAdd(std::string nt) const override;
+        virtual void updateTable(std::string nt) override;
 };
 
 // Disjunction (list of rules derived by a non-terminal)
@@ -206,8 +215,9 @@ class Disj: public ASTNode {
         Disj(NodeList ruleList): RuleList(std::move(ruleList)) {}
         virtual std::string toString(int depth) const override;
         virtual StrSet references() const override;
-        virtual StrSet firstSet() const override;
+        virtual StrSet firstSet() override;
         virtual void followAdd(std::string nt) const override;
+        virtual void updateTable(std::string nt) override;
 };
 
 //--------------------------//
@@ -292,8 +302,8 @@ static Node parseConj() {
      * Remove all redundant epsilons from list */
     size_t epsilonSize = 1;
     if (symbols.size() > epsilonSize)
-        std::erase_if(symbols, [](SYMBOL symb) { return symb.type == EPSILON; });
-    return std::make_unique<Conjunct>(pos, std::move(symbols), ntsReferenced);
+        std::erase_if(symbols, [](SYMBOL symb) {return symb.type == EPSILON;});
+    return std::make_shared<Conjunct>(pos, std::move(symbols), ntsReferenced);
 }
 
 // rlist ::= '|' rule rlist
@@ -307,7 +317,7 @@ static Node parseRule() {
     do {
         conjList.push_back(parseConj());
     } while (match(CONJ));
-    return std::make_unique<Rule>(std::move(conjList));
+    return std::make_shared<Rule>(std::move(conjList));
 }
 
 // disjunction ::= NON_TERM '->' rule rlist ';'
@@ -323,7 +333,7 @@ static Node parseDisj() {
     // Disjunction must be terminated with semicolon
     if (!match(SC))
         parseError("';'");
-    return std::make_unique<Disj>(std::move(ruleList));
+    return std::make_shared<Disj>(std::move(ruleList));
 }
 
 // grammar ::= disjunction dlist
@@ -417,7 +427,7 @@ std::string Disj::toString(int depth) const {
 // Sort Non-Terminals for FIRST Set Computation //
 //----------------------------------------------//
 
-// Get set of non-terminals used in conjunct
+// Get set of non-terminals used in +ve conjunct
 StrSet Conjunct::references() const {
     if (Pos)
         return NtsReferenced;
@@ -425,7 +435,7 @@ StrSet Conjunct::references() const {
         return StrSet();
 }
 
-// Get set of non-terminals used in rule (union of conjuncts' sets of non-terminals)
+// Get set of non-terminals used in rule (union of +ve conjuncts' sets of non-terminals)
 StrSet Rule::references() const {
     StrSet ntsReferenced;
     for (const Node& conj : ConjList) {
@@ -483,66 +493,61 @@ StrVec topologicalSort() {
 
 std::map<std::string, StrSet> firstSets; // maps each non-terminal to its FIRST set
 
-// FIRST set of conjunct
-StrSet Conjunct::firstSet() const {
-    StrSet firsts;
+// Compute FIRST set of conjunct
+StrSet Conjunct::firstSet() {
     if (!Pos) {
-        firsts = alphabet; // if conjunct is negative, FIRST set is FIRST(alphabet*)
-        return firsts;
-    }
-
-    /* If the first symbol in the conjunct is epsilon, this is the conjunct's only symbol
-     * The conjunct's FIRST set contains epsilon only */
-    if (Symbols.front().type == EPSILON) {
-        firsts.insert(""); // epsilon = empty string
-        return firsts;
+        Firsts = alphabet; // if conjunct is negative, FIRST set is FIRST(alphabet*)
+        return Firsts;
     }
 
     // Add to FIRST set until a non-nullable symbol is reached in the conjunct
-    bool nullable;
     for (const SYMBOL& symb : Symbols) {
-        // Terminal is non-nullable, so FIRST set is complete after adding it
-        if (symb.type == STR_LIT) {
-            firsts.insert(symb.str);
-            return firsts;
-        }
+        /* If first symbol in the conjunct is epsilon, this is the conjunct's only symbol
+         * The conjunct's FIRST set contains epsilon only */
+        if (symb.type == EPSILON) {
+            Firsts.insert(""); // epsilon = empty string
+            return Firsts;
 
-        /* If s is a non-terminal, add every symbol in its own FIRST set
-         * If s's FIRST set contains epsilon, s is nullable
-         * If s is non-nullable, stop adding; otherwise go on to next symbol */
-        nullable = false;
-        if (symb.type == NON_TERM) {
-            for (const std::string& s : firstSets[symb.str]) {
-                firsts.insert(s);
-                if (s == "")
-                    nullable = true;
+        // Terminal is non-nullable, so FIRST set is complete after adding it
+        } else if (symb.type == STR_LIT) {
+            Firsts.insert(symb.str);
+            Nullable = false;
+            return Firsts;
+
+        // If s is a non-terminal, add elements of its FIRST set to conjunct's FIRST set
+        } else {
+            StrSet symbFirsts = firstSets[symb.str];
+            Firsts.insert(symbFirsts.cbegin(), symbFirsts.cend());
+
+            // s is non-nullable if its FIRST set does not contain empty string
+            if (!symbFirsts.contains("")) {
+                Nullable = false;
+                return Firsts; // conjunct FIRST set is complete when non-nullable reached
             }
-            if (!nullable)
-                return firsts;
         }
     }
-    return firsts; // all symbols in the conjunct are nullable
+    return Firsts; // all symbols in the conjunct are nullable
 }
 
-// FIRST set of rule (intersection of conjuncts' FIRST sets)
-StrSet Rule::firstSet() const {
-    StrSet firsts = alphabet; // start with entire alphabet
+// Compute FIRST set of rule (intersection of conjuncts' FIRST sets)
+StrSet Rule::firstSet() {
+    Firsts = alphabet; // start with entire alphabet
 
     // For each conjunct, remove items that are not in the conjunct's FIRST set
     for (const Node& conj : ConjList) {
         StrSet conjFirsts = conj->firstSet();
-        for (auto it = firsts.begin(); it != firsts.end();) {
+        for (auto it = Firsts.begin(); it != Firsts.end();) {
             if (!conjFirsts.contains(*it))
-                it = firsts.erase(it);
+                it = Firsts.erase(it);
             else
                 it++;
         }
     }
-    return firsts;
+    return Firsts;
 }
 
-// FIRST set of disjunction (union of rules' FIRST sets)
-StrSet Disj::firstSet() const {
+// Compute FIRST set of disjunction (union of rules' FIRST sets)
+StrSet Disj::firstSet() {
     StrSet firsts;
     for (const Node& rule : RuleList) {
         StrSet ruleFirsts = rule->firstSet();
@@ -576,29 +581,28 @@ void Conjunct::followAdd(std::string nt) const {
             if (followSets.count(current.str) == 0)
                 followSets[current.str] = StrSet();
 
-            /* Add to current symbol's FOLLOW set until a non-nullable symbol is found,
-             * or the end of the conjunct is reached */
+            // Add to FOLLOW set until non-nullable symbol or end of conjunct reached
             while (!nonNullableFound && (nextIndex < conjSize)) {
                 const SYMBOL& next = Symbols[nextIndex];
                 if (next.type == STR_LIT) {
                     followSets[current.str].insert(next.str); // put terminal in FOLLOW set
                     nonNullableFound = true;                  // terminal is non-nullable
 
-                // If symbol is non-terminal, add its FIRST set to current's FOLLOW set
+                // If non-terminal, add elements of its FIRST set to current's FOLLOW set
                 } else if (next.type == NON_TERM) {
                     StrSet nextFirsts = firstSets[next.str];
                     followSets[current.str].insert(nextFirsts.cbegin(), nextFirsts.cend());
 
-                    // Non-nullable if FIRST set does not contain epsilon/empty string
+                    // Non-nullable if FIRST set does not contain empty string
                     if (!nextFirsts.contains(""))
                         nonNullableFound = true;
                 }
                 nextIndex++; // go to next symbol
             }
 
-            /* If all the symbols after the current symbol are nullable, add the FOLLOW set
-             * of the deriving non-terminal (if it is different from current) to current's
-             * FOLLOW set */
+            /* If all the symbols after the current symbol are nullable, add elements of the
+             * FOLLOW set of the deriving non-terminal (if it is different from current) to
+             * current's FOLLOW set */
             if (!nonNullableFound && (nt != current.str)) {
                 StrSet& ntFollowing = followSets[nt];
                 followSets[current.str].insert(ntFollowing.cbegin(), ntFollowing.cend());
@@ -608,19 +612,54 @@ void Conjunct::followAdd(std::string nt) const {
     return;
 }
 
-// Build FOLLOW sets of non-terminals used in rule (add to sets with each conjunct)
+// Build FOLLOW sets of non-terminals used in rule (for each conjunct, add to sets)
 void Rule::followAdd(std::string nt) const {
-    for (const Node& conj : ConjList) {
+    for (const Node& conj : ConjList)
         conj->followAdd(nt);
+    return;
+}
+
+// Build FOLLOW sets of non-terminals used in disjunction (for each rule, add to sets)
+void Disj::followAdd(std::string nt) const {
+    for (const Node& rule : RuleList)
+        rule->followAdd(nt);
+    return;
+}
+
+//-----------------------//
+// Compute Parsing Table //
+//-----------------------//
+
+// Parsing table, maps pair of non-terminal and string to rule (list of conjuncts)
+std::map<std::pair<std::string, std::string>, NodeList> parseTable;
+
+// Add rule to parsing table entry for non-terminal nt and string s if suitable
+void Rule::updateTable(std::string nt) {
+    // If any conjunct is not nullable, rule is not nullable
+    size_t i = 0;
+    while (Nullable && (i < ConjList.size())) {
+        Nullable = ConjList[i]->isNullable() && Nullable;
+        i++;
+    }
+
+    /* If string s is in rule's FIRST set, OR rule is nullable and s is in nt's FOLLOW set,
+     * add rule to entry (nt, s) of parsing table */
+    for (const std::string& s : alphabet) {
+        if (Firsts.contains(s) || (Nullable && followSets[nt].contains(s))) {
+            std::pair<std::string, std::string> tableEntry = make_pair(nt, s);
+            NodeList entryContent;
+            for (const Node& conj : ConjList)
+                entryContent.push_back(conj);
+            parseTable[tableEntry] = entryContent;
+        }
     }
     return;
 }
 
-// Build FOLLOW sets of non-terminals used in disjunction (add to sets with each rule)
-void Disj::followAdd(std::string nt) const {
-    for (const Node& rule : RuleList) {
-        rule->followAdd(nt);
-    }
+// Build parsing table by adding each rule in disjunction to any suitable entries
+void Disj::updateTable(std::string nt) {
+    for (const Node& rule : RuleList)
+        rule->updateTable(nt);
     return;
 }
 
@@ -657,9 +696,10 @@ int main(int argc, char **argv) {
     columnNo = 1; // initialise line & column numbers
     std::map<std::string, Node> grammar = parseGrammar();
     fclose(bbnfFile);
-    std::cout << "Alphabet:" + strSetString(alphabet) + "\n\n"; // print alphabet
+    std::cout << "Alphabet:" + strSetString(alphabet) + "\n"; // print alphabet
 
     // Print AST of grammar
+    std::cout << "\nGrammar AST\n";
     for (const auto& disj : grammar)
         std::cout << "TERMINAL " + disj.first + "\n" + disj.second->toString(0);
 
@@ -701,6 +741,21 @@ int main(int argc, char **argv) {
     std::cout << "\nFOLLOW Sets\n";
     for (const std::string& s : ntOrder)
         std::cout << s + ":" + strSetString(followSets[s]) + "\n";
+
+    // Build parsing table
+    for (const auto& disj : grammar)
+        disj.second->updateTable(disj.first);
+
+    // Print parsing table
+    std::cout << "\nParsing Table\n";
+    for (const auto& entry : parseTable) {
+        std::cout << "NON-TERMINAL " + (entry.first).first + ", STRING ";
+        if ((entry.first).second == "")
+            std::cout << "epsilon";
+        else
+            std::cout << (entry.first).second;
+        std::cout << "\n" + makeIndent(1) + "RULE:\n" + nlString(entry.second, 2);
+    }
 
     return 0;
 }
