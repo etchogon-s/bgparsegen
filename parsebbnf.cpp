@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <deque>
+#include <format>
 #include <fstream>
 #include <iostream>
 #include <map>
@@ -687,85 +688,6 @@ void parseFail() {
     errors.push_back("Parse error [ln 1, col " + std::to_string(pos + 1) + "]: unexpected token " + current + ", expecting " + expected + "\n");
 })";
 
-std::string parseTerminal = R"(
-
-bool terminal() {
-    if (sentence[pos] == "wantedStr") {
-        pos++;
-        return true;
-    } else {
-        return false;
-    }
-})";
-
-std::string parseNonTerminal = R"(
-
-bool nonTerminal() {
-insertCases
-    return false;
-})";
-
-std::string inputCase = R"(
-    if (sentence[pos] == "inputStr") {
-insertConjuncts
-        return true;
-    }
-)";
-
-std::string posConj = R"(
-        if (!(insertSymbols))
-            return false;
-)";
-
-std::string firstPosConj = R"(
-        start = pos;
-insertSymbols
-        end = pos;
-)";
-
-std::string nextPosConj = R"(
-        pos = start;
-insertSymbols
-        if (pos != end)
-            return false;
-)";
-
-std::string negConj = R"(
-        pos = start;
-        bool success = (insertSymbols);
-        if (success && (pos == end))
-            return false;isLastConj
-)";
-
-std::string mainParser = R"(
-
-int main(int argc, char **argv) {
-    if (argc == 2) {
-        inputFile = fopen(argv[1], "r");
-        if (inputFile == NULL)
-            std::cout << "Error opening file\n";
-    } else {
-        std::cout << "Usage: ./parser <input file>\n";
-        return 1;
-    }
-    
-    pos = 0;
-    char nextChar;
-    while ((nextChar = fgetc(inputFile)) != EOF) {
-        if (!isspace(nextChar)) {
-            std::string s(1, nextChar);
-            sentence.push_back(s);
-        }
-    }
-    fclose(inputFile);
-
-    if (nonTerminalStart() && (pos == sentence.size()))
-        std::cout << "Parsing successful\n";
-    else
-        std::cout << "Parsing failed\n";
-    return 0;
-})";
-
 // Print elements of set of strings
 std::string strSetString(StrSet strs) {
     std::string result = "";
@@ -869,9 +791,16 @@ int main(int argc, char **argv) {
     for (const std::string& s : alphabet) {
         if (s != "") {
             terminalNos[s] = terminalNo;
-            std::string parseS = std::regex_replace(parseTerminal, std::regex("terminal"), "terminal" + std::to_string(terminalNo));
-            parseS = std::regex_replace(parseS, std::regex("wantedStr"), s);
-            ParserFile << parseS;
+            ParserFile << std::format(R"(
+
+bool terminal{}() {{
+    if (sentence[pos] == "{}") {{
+        pos++;
+        return true;
+    }} else {{
+        return false;
+    }}
+}})", std::to_string(terminalNo), s);
             terminalNo++;
         }
     }
@@ -881,13 +810,11 @@ int main(int argc, char **argv) {
     int nonTerminalNo = 0;
     for (const std::string& nt : ntOrder) {
         nonTerminalNos[nt] = nonTerminalNo;
-        std::string parseNt = std::regex_replace(parseNonTerminal, std::regex("nonTerminal"), "nonTerminal" + std::to_string(nonTerminalNo));
 
         std::string ntCases = "";
         for (const std::string& s : alphabet) {
             std::pair<std::string, std::string> symbolPair = make_pair(nt, s);
             if (parseTable.count(symbolPair)) {
-                std::string caseS = std::regex_replace(inputCase, std::regex("inputStr"), s);
 
                 std::string tableEntryConjuncts = "";
                 size_t conjNo = 0;
@@ -907,32 +834,86 @@ int main(int argc, char **argv) {
                     }
                     
                     if (conj->isPositive() && (symbolSequence != "")) {
-                        tableEntryConj = std::regex_replace(posConj, std::regex("insertSymbols"), symbolSequence);
+                        tableEntryConj = std::format(R"(        if (!({}))
+            return false;
+)", symbolSequence);
+
                         if (parseTable[symbolPair].size() > 1) {
                             if (conjNo == 0)
-                                tableEntryConj = std::regex_replace(firstPosConj, std::regex("insertSymbols"), tableEntryConj);
+                                tableEntryConj = std::format(R"(        start = pos;
+{}        end = pos;
+)", tableEntryConj);
+
                             else
-                                tableEntryConj = std::regex_replace(nextPosConj, std::regex("insertSymbols"), tableEntryConj);
+                                tableEntryConj = std::format(R"(
+        pos = start;{}
+        if (pos != end)
+            return false;
+)", tableEntryConj);
                         }
+
                     } else if (!conj->isPositive()) {
-                        tableEntryConj = std::regex_replace(negConj, std::regex("insertSymbols"), symbolSequence);
+                        std::string isLastConj = "";
                         if (conjNo == parseTable[symbolPair].size() - 1)
-                            tableEntryConj = std::regex_replace(tableEntryConj, std::regex("isLastConj"), "\n        pos = end;\n");
-                        else
-                            tableEntryConj = std::regex_replace(tableEntryConj, std::regex("isLastConj"), "");
+                            isLastConj = "\n        pos = end;";
+
+                        tableEntryConj = std::format(R"(
+        pos = start;
+        bool success = ({});
+        if (success && (pos == end))
+            return false;{}
+)", symbolSequence, isLastConj);
                     }
+                    
                     tableEntryConjuncts += tableEntryConj;
                     conjNo++;
                 }
 
-                ntCases += std::regex_replace(caseS, std::regex("insertConjuncts"), tableEntryConjuncts);
+                ntCases += std::format(R"(
+    if (sentence[pos] == "{}") {{
+{}        return true;
+    }}
+)", s, tableEntryConjuncts);
             }
         }
-        ParserFile << std::regex_replace(parseNt, std::regex("insertCases"), ntCases);
+
+        ParserFile << std::format(R"(
+
+bool nonTerminal{}() {{
+{}
+    return false;
+}})", std::to_string(nonTerminalNo), ntCases);
         nonTerminalNo++;
     }
 
-    ParserFile << std::regex_replace(mainParser, std::regex("nonTerminalStart"), "nonTerminal" + std::to_string(nonTerminalNo - 1));
+    ParserFile << std::format(R"(
+
+int main(int argc, char **argv) {{
+    if (argc == 2) {{
+        inputFile = fopen(argv[1], "r");
+        if (inputFile == NULL)
+            std::cout << "Error opening file\n";
+    }} else {{
+        std::cout << "Usage: ./parser <input file>\n";
+        return 1;
+    }}
+    
+    pos = 0;
+    char nextChar;
+    while ((nextChar = fgetc(inputFile)) != EOF) {{
+        if (!isspace(nextChar)) {{
+            std::string s(1, nextChar);
+            sentence.push_back(s);
+        }}
+    }}
+    fclose(inputFile);
+
+    if (nonTerminal{}() && (pos == sentence.size()))
+        std::cout << "Parsing successful\n";
+    else
+        std::cout << "Parsing failed\n";
+    return 0;
+}})", std::to_string(nonTerminalNo - 1));
     ParserFile.close();
 
     return 0;
