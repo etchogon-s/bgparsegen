@@ -1,5 +1,4 @@
 #include <algorithm>
-#include <deque>
 #include <format>
 #include <fstream>
 #include <iostream>
@@ -213,34 +212,22 @@ class Disj: public ASTNode {
 // Recursive Descent Parser //
 //--------------------------//
 
-static TOKEN CurTok;                // current token that parser is looking at
-static std::deque<TOKEN> tokBuffer; // token buffer
+static TOKEN CurTok; // current token that parser is looking at
 
-// Read another token from lexer and update current token
-static TOKEN getNextToken() {
-    if (tokBuffer.size() == 0)
-        tokBuffer.push_back(getToken());
-
-    TOKEN temp = tokBuffer.front();
-    tokBuffer.pop_front();
-    return CurTok = temp;
+// Check if current token is of given type
+bool match(TOKEN_TYPE tokType) {
+    if (CurTok.type == tokType) {
+        CurTok = getToken(); // if matched, move on to next token
+        return true;
+    }
+    return false; // do not move on, current token will likely be checked again
 }
 
 /* Display parsing error
  * Include token that triggered error, line and column numbers, and expected sequence */
 void parseError(std::string expected) {
-    std::string report = "Parse error [ln " + std::to_string(CurTok.lineNo) + ", col " + std::to_string(CurTok.columnNo) + "]: unexpected token '" + CurTok.lexeme + "' (expecting " + expected + ")\n";
-    std::cout << report;
+    std::cout << "Parse error [ln " + std::to_string(CurTok.lineNo) + ", col " + std::to_string(CurTok.columnNo) + "]: unexpected token '" + CurTok.lexeme + "' (expecting " + expected + ")\n";
     exit(1); // quit on finding error
-}
-
-// Check if current token is of given type
-bool match(TOKEN_TYPE tokType) {
-    if (CurTok.type == tokType) {
-        getNextToken(); // if matched, move on to next token
-        return true;
-    }
-    return false; // do not move on, current token will likely be checked again
 }
 
 StrSet alphabet = {""}; // set of terminal symbols; include epsilon (empty string)
@@ -248,15 +235,13 @@ StrSet alphabet = {""}; // set of terminal symbols; include epsilon (empty strin
 // symbol ::= NON_TERM | '"' STR_LIT '"' | 'epsilon'
 static SYMBOL parseSymbol() {
     int symbType = CurTok.type;
-    if ((symbType != NON_TERM) && (symbType != STR_LIT) && (symbType != EPSILON))
+    std::string symbStr = CurTok.lexeme;
+    if (!match(NON_TERM) && !match(STR_LIT) && !match(EPSILON))
         parseError("non-terminal or literal");
 
-    // Get symbol and add to alphabet if terminal
-    std::string symbStr = CurTok.lexeme;
+    // Add symbol to alphabet if terminal
     if (symbType == STR_LIT)
         alphabet.insert(symbStr);
-
-    getNextToken(); // move on to next token
 
     // Create & return new symbol
     SYMBOL symb;
@@ -330,22 +315,18 @@ static Node parseDisj() {
 //        |  epsilon
 // disjunction ::= NON_TERM '->' rule rlist ';'
 static std::map<std::string, Node> parseGrammar() {
-    getNextToken();                       // get first token
     std::map<std::string, Node> disjList; // map non-terminals to disjunctions
+    CurTok = getToken();                  // get first token
 
     // Add disjunction until EOF reached
     do {
-        // If current token is a non-terminal, move on to next token; if not, error
-        std::string nt = CurTok.lexeme;
-        if (CurTok.type == NON_TERM)
-            getNextToken();
-        else
+        std::string nt = CurTok.lexeme; // get key (non-terminal)
+        if (!match(NON_TERM))
             parseError("non-terminal");
-
-        // Syntax error if non-terminal not followed by '->'
         if (!match(DERIVE))
             parseError("'->'");
 
+        // Get value (set of rules) and insert key & value into map
         Node nextDisj = parseDisj();
         disjList[nt] = std::move(nextDisj);
     } while (!match(EOF_TOK));
