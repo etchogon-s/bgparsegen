@@ -32,7 +32,6 @@ struct TOKEN {
     std::string lexeme; // actual contents of token
 };
 
-FILE *bbnfFile;              // input grammar file
 int lineNo = 1;
 int columnNo = 1;
 
@@ -47,7 +46,7 @@ static TOKEN makeToken(std::string lexVal, int tokType) {
 }
 
 // Build token by reading characters from file
-static TOKEN getToken() {
+TOKEN getToken(FILE *bbnfFile) {
     char currentChar, nextChar;
     std::string currentStr = ""; // holds current string being tokenised
 
@@ -213,9 +212,9 @@ class Disj: public ASTNode {
 static TOKEN CurTok; // current token that parser is looking at
 
 // Check if current token is of given type
-bool match(TOKEN_TYPE tokType) {
+bool match(TOKEN_TYPE tokType, FILE *bbnfFile) {
     if (CurTok.type == tokType) {
-        CurTok = getToken(); // if matched, move on to next token
+        CurTok = getToken(bbnfFile); // if matched, move on to next token
         return true;
     }
     return false; // do not move on, current token will be checked again
@@ -231,10 +230,10 @@ void parseError(std::string expected) {
 StrSet alphabet = {""}; // set of terminal symbols; include epsilon (empty string)
 
 // symbol ::= NON_TERM | '"' STR_LIT '"' | 'epsilon'
-static SYMBOL parseSymbol() {
+static SYMBOL parseSymbol(FILE *bbnfFile) {
     int symbType = CurTok.type;
     std::string symbStr = CurTok.lexeme;
-    if (!match(NON_TERM) && !match(STR_LIT) && !match(EPSILON))
+    if (!match(NON_TERM, bbnfFile) && !match(STR_LIT, bbnfFile) && !match(EPSILON, bbnfFile))
         parseError("non-terminal or literal");
 
     // Add symbol to alphabet if terminal
@@ -254,16 +253,16 @@ static SYMBOL parseSymbol() {
 // neg ::= '~' | epsilon
 // slist ::= symbol slist
 //        |  epsilon
-static Node parseConj() {
+static Node parseConj(FILE *bbnfFile) {
     bool pos = true; // assume positive conjunct
-    if (match(NEG))
+    if (match(NEG, bbnfFile))
         pos = false; // negative conjunct if preceded by '~'
 
     /* Add symbol to list until ampersand, pipe or semicolon reached
      * If symbol is non-terminal, add to set of non-terminals */
     SymbVec symbols;
     do {
-        SYMBOL nextSymb = parseSymbol();
+        SYMBOL nextSymb = parseSymbol(bbnfFile);
         symbols.push_back(nextSymb);
     } while ((CurTok.type != CONJ) && (CurTok.type != DISJ) && (CurTok.type != SC));
 
@@ -278,29 +277,29 @@ static Node parseConj() {
 // rlist ::= '|' rule rlist
 //        |  epsilon
 // rule ::= conjunct clist
-static Node parseRule() {
+static Node parseRule(FILE *bbnfFile) {
     NodeList conjList;
 
     /* Ampersand follows every conjunct except last conjunct in list
      * Add conjunct to list until conjunct not followed by ampersand */
     do {
-        conjList.push_back(parseConj());
-    } while (match(CONJ));
+        conjList.push_back(parseConj(bbnfFile));
+    } while (match(CONJ, bbnfFile));
     return std::make_shared<Rule>(std::move(conjList));
 }
 
 // disjunction ::= NON_TERM '->' rule rlist ';'
-static Node parseDisj() {
+static Node parseDisj(FILE *bbnfFile) {
     NodeList ruleList;
 
     /* Pipe follows every rule except last rule in list
      * Add rule to list until rule not followed by pipe */
     do {
-        ruleList.push_back(parseRule());
-    } while (match(DISJ));
+        ruleList.push_back(parseRule(bbnfFile));
+    } while (match(DISJ, bbnfFile));
 
     // Disjunction must be terminated with semicolon
-    if (!match(SC))
+    if (!match(SC, bbnfFile))
         parseError("';'");
     return std::make_shared<Disj>(std::move(ruleList));
 }
@@ -309,22 +308,22 @@ static Node parseDisj() {
 // dlist ::= disjunction dlist
 //        |  epsilon
 // disjunction ::= NON_TERM '->' rule rlist ';'
-static std::map<std::string, Node> parseGrammar() {
+static std::map<std::string, Node> parseGrammar(FILE *bbnfFile) {
     std::map<std::string, Node> disjList; // map non-terminals to disjunctions
-    CurTok = getToken();                  // get first token
+    CurTok = getToken(bbnfFile);          // get first token
 
     // Add disjunction until EOF reached
     do {
         std::string nt = CurTok.lexeme; // get key (non-terminal)
-        if (!match(NON_TERM))
+        if (!match(NON_TERM, bbnfFile))
             parseError("non-terminal");
-        if (!match(DERIVE))
+        if (!match(DERIVE, bbnfFile))
             parseError("'->'");
 
         // Get value (set of rules) and insert key & value into map
-        Node nextDisj = parseDisj();
+        Node nextDisj = parseDisj(bbnfFile);
         disjList[nt] = std::move(nextDisj);
-    } while (!match(EOF_TOK));
+    } while (!match(EOF_TOK, bbnfFile));
     return disjList;
 }
 
@@ -422,32 +421,28 @@ StrSet Disj::references() const {
     return ntsReferenced;
 }
 
-/* "Adjacency list" of non-terminal references
- * Each non-terminal mapped to set of non-terminals used in rules derived from it */
-std::map<std::string, StrSet> referencedNts;
-
 // Depth-first search on adjacency list
 StrSet visited;
-StrVec dfs(std::string nt, StrVec ntOrder) {
+StrVec dfs(std::string nt, StrVec ntOrder, std::map<std::string, StrSet> ntRefs) {
     visited.insert(nt); // mark non-terminal as visited
 
     // Depth-first search on all non-terminals referenced by nt that are unvisited
-    for (const std::string& s : referencedNts[nt]) {
+    for (const std::string& s : ntRefs[nt]) {
         if (visited.count(s) == 0)
-            ntOrder = dfs(s, ntOrder);
+            ntOrder = dfs(s, ntOrder, ntRefs);
     }
     ntOrder.push_back(nt); // add nt to ordering
     return ntOrder;
 }
 
 // Topological sort for non-terminals
-StrVec topologicalSort() {
+StrVec topologicalSort(std::map<std::string, StrSet> ntRefs) {
     StrVec ntOrder;
     
     // Start depth-first search
-    for (const auto& nt : referencedNts) {
+    for (const auto& nt : ntRefs) {
         if (visited.count(nt.first) == 0)
-            ntOrder = dfs(nt.first, ntOrder);
+            ntOrder = dfs(nt.first, ntOrder, ntRefs);
     }
     return ntOrder; // return topological ordering
 }
@@ -664,6 +659,7 @@ std::string strSetString(StrSet strs) {
 
 // Get input file and user's algorithm choice
 int main(int argc, char **argv) {
+    FILE *bbnfFile;
     if (argc == 3) {
         bbnfFile = fopen(argv[1], "r");
         if (bbnfFile == NULL)
@@ -674,7 +670,7 @@ int main(int argc, char **argv) {
     }
 
     // Parse input file
-    std::map<std::string, Node> grammar = parseGrammar();
+    std::map<std::string, Node> grammar = parseGrammar(bbnfFile);
     fclose(bbnfFile);
     std::cout << "Alphabet:" + strSetString(alphabet) + "\n"; // print alphabet
 
@@ -683,17 +679,18 @@ int main(int argc, char **argv) {
     for (const auto& disj : grammar)
         std::cout << "TERMINAL " + disj.first + "\n" + disj.second->toString(0);
 
-    /* Build adjacency list: map each non-terminal to its set of non-terminal references
-     * Print mappings */
+    /* Build adjacency list: map each non-terminal to set of non-terminals used in rules
+     * derived from it */
     std::cout << "\nReferenced Non-Terminals\n";
+    std::map<std::string, StrSet> ntRefs;
     for (const auto& disj : grammar) {
         std::string nt = disj.first;
-        referencedNts[nt] = disj.second->references();
-        std::cout << nt + ":" + strSetString(referencedNts[nt]) + "\n";
+        ntRefs[nt] = disj.second->references();
+        std::cout << nt + ":" + strSetString(ntRefs[nt]) + "\n"; // print mappings
     }
 
     // Compute topological ordering of non-terminals and print non-terminals in this order
-    StrVec ntOrder = topologicalSort();
+    StrVec ntOrder = topologicalSort(ntRefs);
     std::cout << "\nOrder of Computing FIRST Sets:";
     for (const std::string& s : ntOrder)
         std::cout << " " + s;
