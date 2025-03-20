@@ -163,14 +163,12 @@ using NodeList = std::vector<Node>;
 
 // Conjunct (list of symbols)
 class Conjunct: public ASTNode {
+    SymbVec Symbols;
     bool Pos;             // true if positive conjunct, false if negative
-    SymbVec Symbols;      // symbols making up conjunct
-    StrSet NtsReferenced; // set of non-terminals used in conjunct
-    StrSet Firsts;        // FIRST set of conjunct
     bool Nullable = true; // whether conjunct is nullable, i.e. all symbols are nullable
 
     public:
-        Conjunct(bool pos, SymbVec symbols, StrSet ntsReferenced): Pos(pos), Symbols(std::move(symbols)), NtsReferenced(ntsReferenced) {}
+        Conjunct(SymbVec symbols, bool pos): Symbols(std::move(symbols)), Pos(pos) {}
         virtual std::string toString(int depth) const override;
         virtual StrSet references() const override;
         virtual StrSet firstSet() override;
@@ -220,7 +218,7 @@ bool match(TOKEN_TYPE tokType) {
         CurTok = getToken(); // if matched, move on to next token
         return true;
     }
-    return false; // do not move on, current token will likely be checked again
+    return false; // do not move on, current token will be checked again
 }
 
 /* Display parsing error
@@ -264,12 +262,9 @@ static Node parseConj() {
     /* Add symbol to list until ampersand, pipe or semicolon reached
      * If symbol is non-terminal, add to set of non-terminals */
     SymbVec symbols;
-    StrSet ntsReferenced;
     do {
         SYMBOL nextSymb = parseSymbol();
         symbols.push_back(nextSymb);
-        if (nextSymb.type == NON_TERM)
-            ntsReferenced.insert(nextSymb.str);
     } while ((CurTok.type != CONJ) && (CurTok.type != DISJ) && (CurTok.type != SC));
 
     /* If list of symbols is longer than 1 and contains epsilons, these are redundant
@@ -277,7 +272,7 @@ static Node parseConj() {
     size_t epsilonSize = 1;
     if (symbols.size() > epsilonSize)
         std::erase_if(symbols, [](SYMBOL symb) {return symb.type == EPSILON;});
-    return std::make_shared<Conjunct>(pos, std::move(symbols), ntsReferenced);
+    return std::make_shared<Conjunct>(std::move(symbols), pos);
 }
 
 // rlist ::= '|' rule rlist
@@ -397,15 +392,17 @@ std::string Disj::toString(int depth) const {
 // Sort Non-Terminals for FIRST Set Computation //
 //----------------------------------------------//
 
-// Get set of non-terminals used in +ve conjunct
+// Get set of non-terminals used in conjunct
 StrSet Conjunct::references() const {
-    if (Pos)
-        return NtsReferenced;
-    else
-        return StrSet();
+    StrSet ntsReferenced;
+    for (const SYMBOL& symb : Symbols) {
+        if (symb.type == NON_TERM)
+            ntsReferenced.insert(symb.str);
+    }
+    return ntsReferenced;
 }
 
-// Get set of non-terminals used in rule (union of +ve conjuncts' sets of non-terminals)
+// Get set of non-terminals used in rule (union of conjuncts' sets of non-terminals)
 StrSet Rule::references() const {
     StrSet ntsReferenced;
     for (const Node& conj : ConjList) {
@@ -439,16 +436,14 @@ StrVec dfs(std::string nt, StrVec ntOrder) {
         if (visited.count(s) == 0)
             ntOrder = dfs(s, ntOrder);
     }
-    
-    // Add nt to ordering
-    ntOrder.push_back(nt);
+    ntOrder.push_back(nt); // add nt to ordering
     return ntOrder;
 }
 
 // Topological sort for non-terminals
 StrVec topologicalSort() {
     StrVec ntOrder;
-
+    
     // Start depth-first search
     for (const auto& nt : referencedNts) {
         if (visited.count(nt.first) == 0)
@@ -465,38 +460,37 @@ std::map<std::string, StrSet> firstSets; // maps each non-terminal to its FIRST 
 
 // Compute FIRST set of conjunct
 StrSet Conjunct::firstSet() {
-    if (!Pos) {
-        Firsts = alphabet; // if conjunct is negative, FIRST set is FIRST(alphabet*)
-        return Firsts;
-    }
+    if (!Pos)
+        return alphabet; // if conjunct is negative, FIRST set is FIRST(alphabet*)
 
     // Add to FIRST set until a non-nullable symbol is reached in the conjunct
+    StrSet firsts;
     for (const SYMBOL& symb : Symbols) {
         /* If first symbol in the conjunct is epsilon, this is the conjunct's only symbol
          * The conjunct's FIRST set contains epsilon only */
         if (symb.type == EPSILON) {
-            Firsts.insert(""); // epsilon = empty string
-            return Firsts;
+            firsts.insert(""); // epsilon = empty string
+            return firsts;
 
         // Terminal is non-nullable, so FIRST set is complete after adding it
         } else if (symb.type == STR_LIT) {
-            Firsts.insert(symb.str);
+            firsts.insert(symb.str);
             Nullable = false;
-            return Firsts;
+            return firsts;
 
         // If s is a non-terminal, add elements of its FIRST set to conjunct's FIRST set
         } else {
             StrSet symbFirsts = firstSets[symb.str];
-            Firsts.insert(symbFirsts.cbegin(), symbFirsts.cend());
+            firsts.insert(symbFirsts.cbegin(), symbFirsts.cend());
 
             // s is non-nullable if its FIRST set does not contain empty string
             if (!symbFirsts.contains("")) {
                 Nullable = false;
-                return Firsts; // conjunct FIRST set is complete when non-nullable reached
+                return firsts; // conjunct FIRST set is complete when non-nullable reached
             }
         }
     }
-    return Firsts; // all symbols in the conjunct are nullable
+    return firsts; // all symbols in the conjunct are nullable
 }
 
 // Compute FIRST set of rule (intersection of conjuncts' FIRST sets)
