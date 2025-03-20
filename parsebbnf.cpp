@@ -29,19 +29,16 @@ enum TOKEN_TYPE {
 };
 
 struct TOKEN {
-    int type;
+    int type, lineNo, columnNo;
     std::string lexeme; // actual contents of token
-    int lineNo;
-    int columnNo;
 };
 
 FILE *bbnfFile;              // input grammar file
-char currentChar = ' ';      // current character lexer is reading
-char nextChar = ' ';         // character following current character
-static int lineNo, columnNo;
+int lineNo = 1;
+int columnNo = 1;
 
 // Create token
-static TOKEN returnToken(std::string lexVal, int tokType) {
+static TOKEN makeToken(std::string lexVal, int tokType) {
     TOKEN tok;
     tok.lexeme = lexVal;
     tok.type = tokType;
@@ -52,16 +49,16 @@ static TOKEN returnToken(std::string lexVal, int tokType) {
 
 // Build token by reading characters from file
 static TOKEN getToken() {
+    char currentChar, nextChar;
     std::string currentStr = ""; // holds current string being tokenised
 
     // Skip whitespace
-    while (isspace(currentChar)) {
+    while (isspace(currentChar = fgetc(bbnfFile))) {
+        columnNo++;
         if ((currentChar == '\n') || (currentChar == '\r')) {
             lineNo++;
             columnNo = 1; // new line starts after newline character
         }
-        currentChar = fgetc(bbnfFile);
-        columnNo++;
     }
 
     // Build string literal token
@@ -70,84 +67,69 @@ static TOKEN getToken() {
 
         // Add characters to string until closing " reached
         while ((currentChar = fgetc(bbnfFile)) != '"') {
-
-            // \" escape sequence for " to be contained in string literal
-            if (currentChar == '\\') {
-                nextChar = fgetc(bbnfFile);
-                if (nextChar == '"') {
-                    currentChar = nextChar; // if \ followed by ", skip \ in currentStr
+            if (currentChar == '\\') { // \" escape sequence for " in string
+                if ((nextChar = fgetc(bbnfFile)) == '"') {
                     columnNo++;
+                    currentChar = nextChar; // skip \ in currentStr
+                } else {
+                    fseek(bbnfFile, -1, SEEK_CUR); // don't lose next character, move back 1
                 }
             }
             currentStr += currentChar;
             columnNo++;
         }
 
-        // Set currentChar to character following closing ", and return string literal token
-        currentChar = fgetc(bbnfFile);
-        columnNo++;
+        columnNo++; // discard closing "
         if (currentStr == "")
-            return returnToken(currentStr, EPSILON); // epsilon = empty string
-        return returnToken(currentStr, STR_LIT);
+            return makeToken(currentStr, EPSILON); // epsilon = empty string
+        return makeToken(currentStr, STR_LIT);
     }
 
-    // Build non-terminal token; symbols can contain letters, digits and underscores
-    if (isalnum(currentChar) || (currentChar == '_')) {
+    // Add characters to string until non-underscore/alphanumeric character reached
+    while (isalnum(currentChar) || (currentChar == '_')) {
         currentStr += currentChar;
         columnNo++;
+        currentChar = fgetc(bbnfFile);
+    }
 
-        // Add characters to string until non-underscore/alphanumeric character reached
-        while(isalnum(currentChar = fgetc(bbnfFile)) || (currentChar == '_')) {
-            currentStr += currentChar;
-            columnNo++;
-        }
-
+    // If characters have been added to string, return non-terminal or epsilon token
+    if (currentStr != "") {
+        fseek(bbnfFile, -1, SEEK_CUR); // don't lose current character, move back 1
         if (currentStr == "epsilon")
-            return returnToken("", EPSILON);
-        return returnToken(currentStr, NON_TERM);
+            return makeToken("", EPSILON);
+        return makeToken(currentStr, NON_TERM);
     }
 
     // After -, check for > to build -> derivation symbol token
     if (currentChar == '-') {
-        nextChar = fgetc(bbnfFile);
-        if (nextChar == '>') {
-            currentChar = fgetc(bbnfFile);
+        if ((nextChar = fgetc(bbnfFile)) == '>') {
             columnNo += 2;
-            return returnToken("->", DERIVE);
+            return makeToken("->", DERIVE);
         } else {
-            currentChar = nextChar;
+            fseek(bbnfFile, -1, SEEK_CUR);  // don't lose next character, move back 1
             columnNo++;
-            return returnToken("-", INVALID); // just return - if no following >
+            return makeToken("-", INVALID); // - without > is invalid
         }
     }
 
-    // Build single character tokens, if character not recognised create invalid token
-    TOKEN newTok;
+    // Build single character tokens
+    columnNo++;
     switch (currentChar) {
         case '|':
-            newTok = returnToken("|", DISJ);
-            break;
+            return makeToken("|", DISJ);
         case '&':
-            newTok = returnToken("&", CONJ);
-            break;
+            return makeToken("&", CONJ);
         case '~':
-            newTok = returnToken("~", NEG);
-            break;
+            return makeToken("~", NEG);
         case ';':
-            newTok = returnToken(";", SC);
-            break;
+            return makeToken(";", SC);
         case EOF:
-            return returnToken("EOF", EOF_TOK); // end of file reached, do not read more characters
-            break;
-        default:
-            std::string s(1, currentChar);
-            newTok = returnToken(s, INVALID);
-            break;
+            return makeToken("EOF", EOF_TOK); // end of file reached, do not read more characters
     }
 
-    currentChar = fgetc(bbnfFile);
-    columnNo++;
-    return newTok;
+    // If character not recognised, create invalid token
+    std::string s(1, currentChar);
+    return makeToken(s, INVALID);
 }
 
 //-------------------//
@@ -717,8 +699,6 @@ int main(int argc, char **argv) {
     }
 
     // Parse input file
-    lineNo = 1;
-    columnNo = 1; // initialise line & column numbers
     std::map<std::string, Node> grammar = parseGrammar();
     fclose(bbnfFile);
     std::cout << "Alphabet:" + strSetString(alphabet) + "\n"; // print alphabet
@@ -791,7 +771,8 @@ int main(int argc, char **argv) {
     for (const std::string& s : alphabet) {
         if (s != "") {
             terminalNos[s] = terminalNo;
-            ParserFile << std::format(R"(
+            ParserFile << std::format(
+R"(
 
 bool terminal{}() {{
     if (sentence[pos] == "{}") {{
@@ -800,7 +781,8 @@ bool terminal{}() {{
     }} else {{
         return false;
     }}
-}})", std::to_string(terminalNo), s);
+}})",
+            terminalNo, s);
             terminalNo++;
         }
     }
@@ -834,59 +816,70 @@ bool terminal{}() {{
                     }
                     
                     if (conj->isPositive() && (symbolSequence != "")) {
-                        tableEntryConj = std::format(R"(        if (!({}))
+                        tableEntryConj = std::format(
+R"(        if (!({}))
             return false;
-)", symbolSequence);
+)",
+                        symbolSequence);
 
                         if (parseTable[symbolPair].size() > 1) {
                             if (conjNo == 0)
-                                tableEntryConj = std::format(R"(        start = pos;
+                                tableEntryConj = std::format(
+R"(        start = pos;
 {}        end = pos;
-)", tableEntryConj);
+)", 
+                                tableEntryConj);
 
                             else
-                                tableEntryConj = std::format(R"(
+                                tableEntryConj = std::format(
+R"(
         pos = start;{}
         if (pos != end)
             return false;
-)", tableEntryConj);
+)",
+                                tableEntryConj);
                         }
-
                     } else if (!conj->isPositive()) {
                         std::string isLastConj = "";
                         if (conjNo == parseTable[symbolPair].size() - 1)
                             isLastConj = "\n        pos = end;";
 
-                        tableEntryConj = std::format(R"(
+                        tableEntryConj = std::format(
+R"(
         pos = start;
         bool success = ({});
         if (success && (pos == end))
             return false;{}
-)", symbolSequence, isLastConj);
+)", 
+                        symbolSequence, isLastConj);
                     }
-                    
                     tableEntryConjuncts += tableEntryConj;
                     conjNo++;
                 }
 
-                ntCases += std::format(R"(
+                ntCases += std::format(
+R"(
     if (sentence[pos] == "{}") {{
 {}        return true;
     }}
-)", s, tableEntryConjuncts);
+)", 
+                s, tableEntryConjuncts);
             }
         }
 
-        ParserFile << std::format(R"(
+        ParserFile << std::format(
+R"(
 
 bool nonTerminal{}() {{
 {}
     return false;
-}})", std::to_string(nonTerminalNo), ntCases);
+}})", 
+        nonTerminalNo, ntCases);
         nonTerminalNo++;
     }
 
-    ParserFile << std::format(R"(
+    ParserFile << std::format(
+R"(
 
 int main(int argc, char **argv) {{
     if (argc == 2) {{
@@ -913,7 +906,8 @@ int main(int argc, char **argv) {{
     else
         std::cout << "Parsing failed\n";
     return 0;
-}})", std::to_string(nonTerminalNo - 1));
+}})", 
+    nonTerminalNo - 1);
     ParserFile.close();
 
     return 0;
