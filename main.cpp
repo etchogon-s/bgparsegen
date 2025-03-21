@@ -1,10 +1,9 @@
 #include <algorithm>
-#include <format>
-#include <fstream>
 #include <iostream>
 #include <utility>
 #include "grammar.h"
 #include "bbnf_parser.h"
+#include "rd_codegen.h"
 
 //---------------------//
 // Grammar AST Printer //
@@ -147,7 +146,7 @@ StrSet Conjunct::firstSet() {
             return firsts;
 
         // Terminal is non-nullable, so FIRST set is complete after adding it
-        } else if (symb.type == STR_LIT) {
+        } else if (symb.type == LITERAL) {
             firsts.insert(symb.str);
             Nullable = false;
             return firsts;
@@ -222,7 +221,7 @@ void Conjunct::followAdd(std::string nt) const {
             // Add to FOLLOW set until non-nullable symbol or end of conjunct reached
             while (!nonNullableFound && (nextIndex < conjSize)) {
                 const SYMBOL& next = Symbols[nextIndex];
-                if (next.type == STR_LIT) {
+                if (next.type == LITERAL) {
                     followSets[current.str].insert(next.str); // put terminal in FOLLOW set
                     nonNullableFound = true;                  // terminal is non-nullable
 
@@ -304,20 +303,6 @@ void Disj::updateTable(std::string nt) {
 //-----------------//
 // Code Generation //
 //-----------------//
-
-std::string parserGlobals = R"(#include <iostream>
-#include <string>
-#include <vector>
-
-FILE *inputFile;
-std::vector<std::string> sentence;
-size_t pos, start, end;)";
-
-std::string handleError = R"(
-
-void parseFail() {
-    errors.push_back("Parse error [ln 1, col " + std::to_string(pos + 1) + "]: unexpected token " + current + ", expecting " + expected + "\n");
-})";
 
 // Print elements of set of strings
 std::string strSetString(StrSet strs) {
@@ -412,153 +397,7 @@ int main(int argc, char **argv) {
         std::cout << "\n" + makeIndent(1) + "RULE:\n" + nlString(entry.second, 2);
     }
 
-    std::ofstream ParserFile;
-    ParserFile.open("parser.cpp");
-    ParserFile << parserGlobals;
-
-    std::map<std::string, int> terminalNos;
-    int terminalNo = 0;
-    for (const std::string& s : alphabet) {
-        if (s != "") {
-            terminalNos[s] = terminalNo;
-            ParserFile << std::format(
-R"(
-
-bool terminal{}() {{
-    if (sentence[pos] == "{}") {{
-        pos++;
-        return true;
-    }} else {{
-        return false;
-    }}
-}})",
-            terminalNo, s);
-            terminalNo++;
-        }
-    }
-
     std::reverse(ntOrder.begin(), ntOrder.end()); // reverse order of non-terminals
-    std::map<std::string, int> nonTerminalNos;
-    int nonTerminalNo = 0;
-    for (const std::string& nt : ntOrder) {
-        nonTerminalNos[nt] = nonTerminalNo;
-
-        std::string ntCases = "";
-        for (const std::string& s : alphabet) {
-            std::pair<std::string, std::string> symbolPair = make_pair(nt, s);
-            if (parseTable.count(symbolPair)) {
-
-                std::string tableEntryConjuncts = "";
-                size_t conjNo = 0;
-                for (const GNode& conj : parseTable[symbolPair]) {
-                    std::string tableEntryConj;
-
-                    std::string symbolSequence = "";
-                    size_t symbNo = 0;
-                    for (const SYMBOL& symb : conj->getSymbols()) {
-                        if (symbNo > 0)
-                            symbolSequence += " && ";
-                        if (symb.type == STR_LIT)
-                            symbolSequence += "terminal" + std::to_string(terminalNos[symb.str]) + "()";
-                        else if (symb.type == NON_TERM)
-                            symbolSequence += "nonTerminal" + std::to_string(nonTerminalNos[symb.str]) + "()";
-                        symbNo++;
-                    }
-                    
-                    if (conj->isPositive() && (symbolSequence != "")) {
-                        tableEntryConj = std::format(
-R"(        if (!({}))
-            return false;
-)",
-                        symbolSequence);
-
-                        if (parseTable[symbolPair].size() > 1) {
-                            if (conjNo == 0)
-                                tableEntryConj = std::format(
-R"(        start = pos;
-{}        end = pos;
-)", 
-                                tableEntryConj);
-
-                            else
-                                tableEntryConj = std::format(
-R"(
-        pos = start;{}
-        if (pos != end)
-            return false;
-)",
-                                tableEntryConj);
-                        }
-                    } else if (!conj->isPositive()) {
-                        std::string isLastConj = "";
-                        if (conjNo == parseTable[symbolPair].size() - 1)
-                            isLastConj = "\n        pos = end;";
-
-                        tableEntryConj = std::format(
-R"(
-        pos = start;
-        bool success = ({});
-        if (success && (pos == end))
-            return false;{}
-)", 
-                        symbolSequence, isLastConj);
-                    }
-                    tableEntryConjuncts += tableEntryConj;
-                    conjNo++;
-                }
-
-                ntCases += std::format(
-R"(
-    if (sentence[pos] == "{}") {{
-{}        return true;
-    }}
-)", 
-                s, tableEntryConjuncts);
-            }
-        }
-
-        ParserFile << std::format(
-R"(
-
-bool nonTerminal{}() {{
-{}
-    return false;
-}})", 
-        nonTerminalNo, ntCases);
-        nonTerminalNo++;
-    }
-
-    ParserFile << std::format(
-R"(
-
-int main(int argc, char **argv) {{
-    if (argc == 2) {{
-        inputFile = fopen(argv[1], "r");
-        if (inputFile == NULL)
-            std::cout << "Error opening file\n";
-    }} else {{
-        std::cout << "Usage: ./parser <input file>\n";
-        return 1;
-    }}
-    
-    pos = 0;
-    char nextChar;
-    while ((nextChar = fgetc(inputFile)) != EOF) {{
-        if (!isspace(nextChar)) {{
-            std::string s(1, nextChar);
-            sentence.push_back(s);
-        }}
-    }}
-    fclose(inputFile);
-
-    if (nonTerminal{}() && (pos == sentence.size()))
-        std::cout << "Parsing successful\n";
-    else
-        std::cout << "Parsing failed\n";
-    return 0;
-}})", 
-    nonTerminalNo - 1);
-    ParserFile.close();
-
+    RDCodegen(ntOrder);
     return 0;
 }

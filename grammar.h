@@ -1,22 +1,34 @@
 #ifndef GRAMMAR_H
 #define GRAMMAR_H
 
+#include <map>
 #include <memory>
 #include <set>
 #include <string>
 #include <vector>
 
-using StrVec = std::vector<std::string>;
-using StrSet = std::set<std::string>;
-
-extern StrSet alphabet; // set of terminal symbols used by grammar
+// Types of symbols used in BBNF
+enum SYMBOL_TYPE {
+    NON_TERM, // non-terminal symbol
+    LITERAL,  // terminal (string literal)
+    EPSILON,
+    DERIVE,   // '->' (derivation)
+    DISJ,     // '|' (disjunction)
+    CONJ,     // '&' (conjunction)
+    NEG,      // '~' (negation)
+    SC,       // semicolon
+    EOF_TOK,  // end of file
+    INVALID,
+};
 
 // Non-terminal or terminal in conjunct
 struct SYMBOL {
-    int type;        // same as symbol's token type (terminal, non-terminal, epsilon)
-    std::string str; // actual symbol
+    int type;        // can be NON_TERM, LITERAL or EPSILON
+    std::string str; // symbol
 };
 
+using StrSet = std::set<std::string>;
+using StrVec = std::vector<std::string>;
 using SymbVec = std::vector<SYMBOL>;
 
 // Grammar AST node
@@ -38,7 +50,7 @@ using GNodeList = std::vector<GNode>;
 
 // Conjunct (sequence of symbols)
 class Conjunct: public GrammarNode {
-    SymbVec Symbols;      // symbols
+    SymbVec Symbols;
     bool Pos;             // true if positive conjunct, false if negative
     bool Nullable = true; // whether conjunct is nullable, i.e. all symbols are nullable
 
@@ -55,7 +67,7 @@ class Conjunct: public GrammarNode {
 
 // Rule (intersection of conjuncts)
 class Rule: public GrammarNode {
-    GNodeList ConjList;   // conjuncts
+    GNodeList ConjList;
     StrSet Firsts;        // FIRST set of rule
     bool Nullable = true; // whether rule is nullable, i.e. all conjuncts are nullable
 
@@ -70,7 +82,7 @@ class Rule: public GrammarNode {
 
 // Disjunction (union of rules)
 class Disj: public GrammarNode {
-    GNodeList RuleList; // rules
+    GNodeList RuleList;
 
     public:
         Disj(GNodeList ruleList): RuleList(std::move(ruleList)) {}
@@ -80,5 +92,8 @@ class Disj: public GrammarNode {
         virtual void followAdd(std::string nt) const override;
         virtual void updateTable(std::string nt) override;
 };
+
+extern StrSet alphabet; // set of terminal symbols used by grammar
+extern std::map<std::pair<std::string, std::string>, GNodeList> parseTable;
 
 #endif

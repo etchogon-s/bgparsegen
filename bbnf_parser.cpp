@@ -56,7 +56,7 @@ static TOKEN getToken() {
         columnNo++; // discard closing "
         if (currentStr == "")
             return makeToken(currentStr, EPSILON); // epsilon = empty string
-        return makeToken(currentStr, STR_LIT);
+        return makeToken(currentStr, LITERAL);
     }
 
     // Add characters to string until non-underscore/alphanumeric character reached
@@ -115,7 +115,7 @@ static void parseError(std::string expected) {
 }
 
 // Check if current token is of given type
-static bool match(TOKEN_TYPE tokType) {
+static bool match(int tokType) {
     if (CurTok.type == tokType) {
         CurTok = getToken(); // if matched, move on to next token
         return true;
@@ -128,7 +128,7 @@ StrSet alphabet; // terminals used by grammar
 static SYMBOL parseSymbol() {
     int symbType = CurTok.type;
     std::string symbStr = CurTok.lexeme;
-    if (!match(NON_TERM) && !match(STR_LIT) && !match(EPSILON))
+    if (!match(NON_TERM) && !match(LITERAL) && !match(EPSILON))
         parseError("non-terminal or literal");
 
     // Record symbol for alphabet if terminal
