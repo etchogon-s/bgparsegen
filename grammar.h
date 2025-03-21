@@ -1,6 +1,7 @@
 #ifndef GRAMMAR_H
 #define GRAMMAR_H
 
+#include <memory>
 #include <set>
 #include <string>
 #include <vector>
