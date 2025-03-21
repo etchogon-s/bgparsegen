@@ -24,7 +24,7 @@ enum SYMBOL_TYPE {
 
 struct SYMBOL {
     std::string str;            // lexeme
-    int type, lineNo, columnNo; // type and position in input
+    int type, lineNo, columnNo; // type, and position in input
 };
 
 using StrSet = std::set<std::string>;
@@ -40,8 +40,8 @@ class GrammarNode {
         virtual StrSet references() const {return StrSet();};
         virtual StrSet firstSet() {return StrSet();};
         virtual void followAdd(std::string nt) const {};
-        virtual void updateTable(std::string nt) {};
         virtual bool isPositive() const {return true;};
+        virtual void updateTable(std::string nt) {};
         virtual SymbVec getSymbols() const {return SymbVec();};
 };
 
@@ -51,7 +51,7 @@ using GNodeList = std::vector<GNode>;
 // Conjunct (sequence of symbols)
 class Conjunct: public GrammarNode {
     SymbVec Symbols;
-    bool Pos;             // true if positive conjunct, false if negative
+    bool Pos;        // true if positive conjunct, false if negative conjunct
 
     public:
         Conjunct(SymbVec symbols, bool pos): Symbols(std::move(symbols)), Pos(pos) {}
@@ -66,7 +66,7 @@ class Conjunct: public GrammarNode {
 // Rule (intersection of conjuncts)
 class Rule: public GrammarNode {
     GNodeList ConjList;
-    StrSet Firsts;        // FIRST set of rule
+    StrSet Firsts;      // FIRST set of rule
 
     public:
         Rule(GNodeList conjList): ConjList(std::move(conjList)) {}

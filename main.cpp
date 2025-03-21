@@ -1,6 +1,5 @@
 #include <algorithm>
 #include <iostream>
-#include <utility>
 #include "grammar.h"
 #include "bbnf_parser.h"
 #include "rd_codegen.h"
@@ -275,7 +274,7 @@ void Rule::updateTable(std::string nt) {
     // If any conjunct is not nullable, rule is not nullable
     size_t i = 0;
     while (Nullable && (i < ConjList.size())) {
-        Nullable = ConjList[i]->isNullable() && Nullable;
+        Nullable = ConjList[i]->Nullable && Nullable;
         i++;
     }
 
