@@ -144,9 +144,9 @@ using SymbVec = std::vector<SYMBOL>;
 using StrSet = std::set<std::string>;
 using StrVec = std::vector<std::string>;
 
-class ASTNode {
+class GrammarNode {
     public:
-        virtual ~ASTNode() {}
+        virtual ~GrammarNode() {}
         virtual std::string toString(int depth) const {return "";};
         virtual StrSet references() const {return StrSet();};
         virtual StrSet firstSet() {return StrSet();};
@@ -157,11 +157,11 @@ class ASTNode {
         virtual SymbVec getSymbols() const {return SymbVec();};
 };
 
-using Node = std::shared_ptr<ASTNode>;
+using Node = std::shared_ptr<GrammarNode>;
 using NodeList = std::vector<Node>;
 
 // Conjunct (list of symbols)
-class Conjunct: public ASTNode {
+class Conjunct: public GrammarNode {
     SymbVec Symbols;
     bool Pos;             // true if positive conjunct, false if negative
     bool Nullable = true; // whether conjunct is nullable, i.e. all symbols are nullable
@@ -178,7 +178,7 @@ class Conjunct: public ASTNode {
 };
 
 // Rule (list of conjuncts)
-class Rule: public ASTNode {
+class Rule: public GrammarNode {
     NodeList ConjList;
     StrSet Firsts;        // FIRST set of rule
     bool Nullable = true; // whether rule is nullable, i.e. all conjuncts are nullable
@@ -193,7 +193,7 @@ class Rule: public ASTNode {
 };
 
 // Disjunction (list of rules derived by a non-terminal)
-class Disj: public ASTNode {
+class Disj: public GrammarNode {
     NodeList RuleList;
 
     public:
@@ -674,7 +674,7 @@ int main(int argc, char **argv) {
     fclose(bbnfFile);
     std::cout << "Alphabet:" + strSetString(alphabet) + "\n"; // print alphabet
 
-    // Print AST of grammar
+    // Print grammar AST
     std::cout << "\nGrammar AST\n";
     for (const auto& disj : grammar)
         std::cout << "TERMINAL " + disj.first + "\n" + disj.second->toString(0);
