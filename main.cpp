@@ -9,6 +9,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include "grammar.h"
 
 //-------//
 // Lexer //
@@ -130,81 +131,6 @@ TOKEN getToken(FILE *bbnfFile) {
     return makeToken(s, INVALID);
 }
 
-//-------------------//
-// Grammar AST Nodes //
-//-------------------//
-
-// Non-terminal or terminal in conjunct
-struct SYMBOL {
-    int type;        // same as symbol's token type (terminal, non-terminal, epsilon)
-    std::string str; // actual symbol
-};
-
-using SymbVec = std::vector<SYMBOL>;
-using StrSet = std::set<std::string>;
-using StrVec = std::vector<std::string>;
-
-class GrammarNode {
-    public:
-        virtual ~GrammarNode() {}
-        virtual std::string toString(int depth) const {return "";};
-        virtual StrSet references() const {return StrSet();};
-        virtual StrSet firstSet() {return StrSet();};
-        virtual void followAdd(std::string nt) const {};
-        virtual void updateTable(std::string nt) {};
-        virtual bool isNullable() const {return true;};
-        virtual bool isPositive() const {return true;};
-        virtual SymbVec getSymbols() const {return SymbVec();};
-};
-
-using Node = std::shared_ptr<GrammarNode>;
-using NodeList = std::vector<Node>;
-
-// Conjunct (list of symbols)
-class Conjunct: public GrammarNode {
-    SymbVec Symbols;
-    bool Pos;             // true if positive conjunct, false if negative
-    bool Nullable = true; // whether conjunct is nullable, i.e. all symbols are nullable
-
-    public:
-        Conjunct(SymbVec symbols, bool pos): Symbols(std::move(symbols)), Pos(pos) {}
-        virtual std::string toString(int depth) const override;
-        virtual StrSet references() const override;
-        virtual StrSet firstSet() override;
-        virtual void followAdd(std::string nt) const override;
-        virtual bool isNullable() const override {return Nullable;};
-        virtual bool isPositive() const override {return Pos;};
-        virtual SymbVec getSymbols() const override {return Symbols;};
-};
-
-// Rule (list of conjuncts)
-class Rule: public GrammarNode {
-    NodeList ConjList;
-    StrSet Firsts;        // FIRST set of rule
-    bool Nullable = true; // whether rule is nullable, i.e. all conjuncts are nullable
-
-    public:
-        Rule(NodeList conjList): ConjList(std::move(conjList)) {}
-        virtual std::string toString(int depth) const override;
-        virtual StrSet references() const override;
-        virtual StrSet firstSet() override;
-        virtual void followAdd(std::string nt) const override;
-        virtual void updateTable(std::string nt) override;
-};
-
-// Disjunction (list of rules derived by a non-terminal)
-class Disj: public GrammarNode {
-    NodeList RuleList;
-
-    public:
-        Disj(NodeList ruleList): RuleList(std::move(ruleList)) {}
-        virtual std::string toString(int depth) const override;
-        virtual StrSet references() const override;
-        virtual StrSet firstSet() override;
-        virtual void followAdd(std::string nt) const override;
-        virtual void updateTable(std::string nt) override;
-};
-
 //--------------------------//
 // Recursive Descent Parser //
 //--------------------------//
@@ -227,9 +153,8 @@ void parseError(std::string expected) {
     exit(1); // quit on finding error
 }
 
-StrSet alphabet = {""}; // set of terminal symbols; include epsilon (empty string)
-
 // symbol ::= NON_TERM | '"' STR_LIT '"' | 'epsilon'
+StrSet alphabet;
 static SYMBOL parseSymbol(FILE *bbnfFile) {
     int symbType = CurTok.type;
     std::string symbStr = CurTok.lexeme;
@@ -237,7 +162,7 @@ static SYMBOL parseSymbol(FILE *bbnfFile) {
         parseError("non-terminal or literal");
 
     // Add symbol to alphabet if terminal
-    if (symbType == STR_LIT)
+    if (symbType != NON_TERM)
         alphabet.insert(symbStr);
 
     // Create & return new symbol
@@ -253,7 +178,7 @@ static SYMBOL parseSymbol(FILE *bbnfFile) {
 // neg ::= '~' | epsilon
 // slist ::= symbol slist
 //        |  epsilon
-static Node parseConj(FILE *bbnfFile) {
+static GNode parseConj(FILE *bbnfFile) {
     bool pos = true; // assume positive conjunct
     if (match(NEG, bbnfFile))
         pos = false; // negative conjunct if preceded by '~'
@@ -277,8 +202,8 @@ static Node parseConj(FILE *bbnfFile) {
 // rlist ::= '|' rule rlist
 //        |  epsilon
 // rule ::= conjunct clist
-static Node parseRule(FILE *bbnfFile) {
-    NodeList conjList;
+static GNode parseRule(FILE *bbnfFile) {
+    GNodeList conjList;
 
     /* Ampersand follows every conjunct except last conjunct in list
      * Add conjunct to list until conjunct not followed by ampersand */
@@ -289,8 +214,8 @@ static Node parseRule(FILE *bbnfFile) {
 }
 
 // disjunction ::= NON_TERM '->' rule rlist ';'
-static Node parseDisj(FILE *bbnfFile) {
-    NodeList ruleList;
+static GNode parseDisj(FILE *bbnfFile) {
+    GNodeList ruleList;
 
     /* Pipe follows every rule except last rule in list
      * Add rule to list until rule not followed by pipe */
@@ -308,8 +233,8 @@ static Node parseDisj(FILE *bbnfFile) {
 // dlist ::= disjunction dlist
 //        |  epsilon
 // disjunction ::= NON_TERM '->' rule rlist ';'
-static std::map<std::string, Node> parseGrammar(FILE *bbnfFile) {
-    std::map<std::string, Node> disjList; // map non-terminals to disjunctions
+static std::map<std::string, GNode> parseGrammar(FILE *bbnfFile) {
+    std::map<std::string, GNode> disjList; // map non-terminals to disjunctions
     CurTok = getToken(bbnfFile);          // get first token
 
     // Add disjunction until EOF reached
@@ -321,7 +246,7 @@ static std::map<std::string, Node> parseGrammar(FILE *bbnfFile) {
             parseError("'->'");
 
         // Get value (set of rules) and insert key & value into map
-        Node nextDisj = parseDisj(bbnfFile);
+        GNode nextDisj = parseDisj(bbnfFile);
         disjList[nt] = std::move(nextDisj);
     } while (!match(EOF_TOK, bbnfFile));
     return disjList;
@@ -341,10 +266,10 @@ std::string makeIndent(int depth) {
     return indent;
 }
 
-// Convert NodeList to string
-std::string nlString(const NodeList& list, int depth) {
+// Convert GNodeList to string
+std::string nlString(const GNodeList& list, int depth) {
     std::string result = "";
-    for (const Node& n : list) {
+    for (const GNode& n : list) {
         if (n != nullptr)
             result += n->toString(depth); // convert each item and add to result string
     }
@@ -404,7 +329,7 @@ StrSet Conjunct::references() const {
 // Get set of non-terminals used in rule (union of conjuncts' sets of non-terminals)
 StrSet Rule::references() const {
     StrSet ntsReferenced;
-    for (const Node& conj : ConjList) {
+    for (const GNode& conj : ConjList) {
         auto conjReferences = conj->references();
         ntsReferenced.insert(conjReferences.cbegin(), conjReferences.cend());
     }
@@ -414,7 +339,7 @@ StrSet Rule::references() const {
 // Get set of non-terminals used in disjunction (union of rules' sets of non-terminals)
 StrSet Disj::references() const {
     StrSet ntsReferenced;
-    for (const Node& rule : RuleList) {
+    for (const GNode& rule : RuleList) {
         auto ruleReferences = rule->references();
         ntsReferenced.insert(ruleReferences.cbegin(), ruleReferences.cend());
     }
@@ -493,7 +418,7 @@ StrSet Rule::firstSet() {
     Firsts = alphabet; // start with entire alphabet
 
     // For each conjunct, remove items that are not in the conjunct's FIRST set
-    for (const Node& conj : ConjList) {
+    for (const GNode& conj : ConjList) {
         StrSet conjFirsts = conj->firstSet();
         for (auto it = Firsts.begin(); it != Firsts.end();) {
             if (!conjFirsts.contains(*it))
@@ -508,7 +433,7 @@ StrSet Rule::firstSet() {
 // Compute FIRST set of disjunction (union of rules' FIRST sets)
 StrSet Disj::firstSet() {
     StrSet firsts;
-    for (const Node& rule : RuleList) {
+    for (const GNode& rule : RuleList) {
         StrSet ruleFirsts = rule->firstSet();
         firsts.insert(ruleFirsts.cbegin(), ruleFirsts.cend());
     }
@@ -573,14 +498,14 @@ void Conjunct::followAdd(std::string nt) const {
 
 // Build FOLLOW sets of non-terminals used in rule (for each conjunct, add to sets)
 void Rule::followAdd(std::string nt) const {
-    for (const Node& conj : ConjList)
+    for (const GNode& conj : ConjList)
         conj->followAdd(nt);
     return;
 }
 
 // Build FOLLOW sets of non-terminals used in disjunction (for each rule, add to sets)
 void Disj::followAdd(std::string nt) const {
-    for (const Node& rule : RuleList)
+    for (const GNode& rule : RuleList)
         rule->followAdd(nt);
     return;
 }
@@ -590,7 +515,7 @@ void Disj::followAdd(std::string nt) const {
 //-----------------------//
 
 // Parsing table, maps pair of non-terminal and string to rule (list of conjuncts)
-std::map<std::pair<std::string, std::string>, NodeList> parseTable;
+std::map<std::pair<std::string, std::string>, GNodeList> parseTable;
 
 // Add rule to parsing table entry for non-terminal nt and string s if suitable
 void Rule::updateTable(std::string nt) {
@@ -606,8 +531,8 @@ void Rule::updateTable(std::string nt) {
     for (const std::string& s : alphabet) {
         if (Firsts.contains(s) || (Nullable && followSets[nt].contains(s))) {
             std::pair<std::string, std::string> tableEntry = make_pair(nt, s);
-            NodeList entryContent;
-            for (const Node& conj : ConjList)
+            GNodeList entryContent;
+            for (const GNode& conj : ConjList)
                 entryContent.push_back(conj);
             parseTable[tableEntry] = entryContent;
         }
@@ -617,7 +542,7 @@ void Rule::updateTable(std::string nt) {
 
 // Build parsing table by adding each rule in disjunction to any suitable entries
 void Disj::updateTable(std::string nt) {
-    for (const Node& rule : RuleList)
+    for (const GNode& rule : RuleList)
         rule->updateTable(nt);
     return;
 }
@@ -670,7 +595,7 @@ int main(int argc, char **argv) {
     }
 
     // Parse input file
-    std::map<std::string, Node> grammar = parseGrammar(bbnfFile);
+    std::map<std::string, GNode> grammar = parseGrammar(bbnfFile);
     fclose(bbnfFile);
     std::cout << "Alphabet:" + strSetString(alphabet) + "\n"; // print alphabet
 
@@ -772,7 +697,7 @@ bool terminal{}() {{
 
                 std::string tableEntryConjuncts = "";
                 size_t conjNo = 0;
-                for (const Node& conj : parseTable[symbolPair]) {
+                for (const GNode& conj : parseTable[symbolPair]) {
                     std::string tableEntryConj;
 
                     std::string symbolSequence = "";
