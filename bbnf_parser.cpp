@@ -6,23 +6,18 @@ FILE *bbnfFile; // input file
 static int lineNo = 1;
 static int columnNo = 1;
 
-struct TOKEN {
-    int type, lineNo, columnNo;
-    std::string lexeme;
-};
-
 // Create new token
-static TOKEN makeToken(std::string lexVal, int tokType) {
-    TOKEN tok;
-    tok.lexeme = lexVal;
-    tok.type = tokType;
-    tok.lineNo = lineNo;
-    tok.columnNo = columnNo - lexVal.length() - 1;
-    return tok;
+static SYMBOL makeToken(std::string lexVal, int tokenType) {
+    SYMBOL token;
+    token.str = lexVal;
+    token.type = tokenType;
+    token.lineNo = lineNo;
+    token.columnNo = columnNo - lexVal.length() - 1;
+    return token;
 }
 
 // Lexer: read characters from file and convert into tokens
-static TOKEN getToken() {
+static SYMBOL getToken() {
     char currentChar, nextChar;
     std::string currentStr = ""; // holds string to be tokenised
 
@@ -98,7 +93,7 @@ static TOKEN getToken() {
         case ';':
             return makeToken(";", SC);
         case EOF:
-            return makeToken("EOF", EOF_TOK);
+            return makeToken("EOF", EOF_CHAR);
     }
 
     // If current character not recognised, create invalid token
@@ -106,18 +101,18 @@ static TOKEN getToken() {
     return makeToken(s, INVALID);
 }
 
-static TOKEN CurTok; // token that parser is currently reading
+static SYMBOL currentToken; // token that parser is currently reading
 
 // Parser error: show incorrect (current) token, its position, and expected sequence
 static void parseError(std::string expected) {
-    std::cout << "Parse error [ln " + std::to_string(CurTok.lineNo) + ", col " + std::to_string(CurTok.columnNo) + "]: unexpected token '" + CurTok.lexeme + "' (expecting " + expected + ")\n";
+    std::cout << "Parse error [ln " + std::to_string(currentToken.lineNo) + ", col " + std::to_string(currentToken.columnNo) + "]: unexpected token '" + currentToken.str + "' (expecting " + expected + ")\n";
     exit(1); // quit on error
 }
 
 // Check if current token is of given type
 static bool match(int tokType) {
-    if (CurTok.type == tokType) {
-        CurTok = getToken(); // if matched, move on to next token
+    if (currentToken.type == tokType) {
+        currentToken = getToken(); // if matched, move on to next token
         return true;
     }
     return false; // do not move on, current token will be checked again
@@ -126,19 +121,13 @@ static bool match(int tokType) {
 // Parse symbol (non-terminal, string literal, or epsilon)
 StrSet alphabet; // terminals used by grammar
 static SYMBOL parseSymbol() {
-    int symbType = CurTok.type;
-    std::string symbStr = CurTok.lexeme;
+    SYMBOL symb = currentToken;
     if (!match(NON_TERM) && !match(LITERAL) && !match(EPSILON))
         parseError("non-terminal or literal");
 
     // Record symbol for alphabet if terminal
-    if (symbType != NON_TERM)
-        alphabet.insert(symbStr);
-
-    // Create & return new symbol
-    SYMBOL symb;
-    symb.type = symbType;
-    symb.str = symbStr;
+    if (symb.type != NON_TERM)
+        alphabet.insert(symb.str);
     return symb;
 }
 
@@ -153,7 +142,7 @@ static GNode parseConj() {
     do {
         SYMBOL nextSymb = parseSymbol();
         symbols.push_back(nextSymb);
-    } while ((CurTok.type != CONJ) && (CurTok.type != DISJ) && (CurTok.type != SC));
+    } while ((currentToken.type != CONJ) && (currentToken.type != DISJ) && (currentToken.type != SC));
     return std::make_shared<Conjunct>(std::move(symbols), pos);
 }
 
@@ -186,11 +175,11 @@ static GNode parseDisj() {
 // Parse grammar: map non-terminals to disjunctions of rules
 std::map<std::string, GNode> parseGrammar() {
     std::map<std::string, GNode> disjList;
-    CurTok = getToken(); // get first token
+    currentToken = getToken(); // get first token
 
     // Add disjunction until EOF reached
     do {
-        std::string nt = CurTok.lexeme; // get key (non-terminal)
+        std::string nt = currentToken.str; // get key (non-terminal)
         if (!match(NON_TERM))
             parseError("non-terminal");
         if (!match(DERIVE))
@@ -198,6 +187,6 @@ std::map<std::string, GNode> parseGrammar() {
 
         GNode nextDisj = parseDisj();       // get value (disjunction)
         disjList[nt] = std::move(nextDisj); // insert key & value into map
-    } while (!match(EOF_TOK));
+    } while (!match(EOF_CHAR));
     return disjList;
 }
