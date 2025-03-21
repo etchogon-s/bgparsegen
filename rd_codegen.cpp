@@ -3,7 +3,8 @@
 #include "grammar.h"
 #include "rd_codegen.h"
 
-std::string parserGlobals = R"(#include <iostream>
+// Code that starts parser file
+std::string beginningCode = R"(#include <iostream>
 #include <string>
 #include <vector>
 
@@ -11,14 +12,17 @@ FILE *inputFile;
 std::vector<std::string> sentence;
 size_t pos, start, end;)";
 
+// Parser error handling function
 std::string handleError = R"(
 
 void parseFail() {
     errors.push_back("Parse error [ln 1, col " + std::to_string(pos + 1) + "]: unexpected token " + current + ", expecting " + expected + "\n");
 })";
 
+// Assign a number to each terminal and non-terminal
 std::map<std::string, int> terminalNos, nonTerminalNos;
 
+// Generate code for parsing a terminal: if string matched, advance position in input
 std::string parseTerminal(int terminalNo, const std::string& s) {
     return std::format(R"(
 
@@ -33,13 +37,15 @@ bool terminal{}() {{
     terminalNo, s);
 }
 
+// Generate code for parsing a sequence of symbols
 std::string parseSymbSeq(const SymbVec& symbols) {
     std::string symbolSequence = "";
     int symbNo = 0;
     for (const SYMBOL& symb : symbols) {
         if (symbNo > 0)
-            symbolSequence += " && ";
+            symbolSequence += " && "; // functions that are not the first one are preceded by &&
 
+        // Add numbered terminal or non-terminal function
         if (symb.type == LITERAL)
             symbolSequence += "terminal" + std::to_string(terminalNos[symb.str]) + "()";
         else if (symb.type == NON_TERM)
@@ -49,6 +55,7 @@ std::string parseSymbSeq(const SymbVec& symbols) {
     return symbolSequence;
 }
 
+// Add to conjunct code if it is not the only conjunct in a rule
 std::string notOnlyConj(std::string conjCode, size_t conjNo) {
     if (conjNo == 0)
         return std::format(
@@ -65,10 +72,12 @@ return false;
     conjCode);
 }
 
+// Generate code for parsing a conjunct
 std::string parseConj(const GNode& conj, size_t conjNo, size_t ruleSize) {
     std::string conjCode = "";
     std::string symbolSequence = parseSymbSeq(conj->getSymbols());
     
+    // Positive conjunct that contains at least 1 (non-)terminal
     if (conj->isPositive() && (symbolSequence != "")) {
         conjCode = std::format(
 R"(        if (!({}))
@@ -76,15 +85,17 @@ return false;
 )",
         symbolSequence);
 
+        // Adjust code if rule contains multiple conjuncts
         if (ruleSize > 1)
             return notOnlyConj(conjCode, conjNo);
         return conjCode;
     }
 
+    // Negative conjunct
     if (!conj->isPositive()) {
         std::string isLastConj = "";
         if (conjNo == ruleSize - 1)
-            isLastConj = "\n        pos = end;";
+            isLastConj = "\n        pos = end;"; // follows code for last negative conjunct
 
         return std::format(R"(
 pos = start;
@@ -97,15 +108,19 @@ return false;{}
     return conjCode;
 }
 
+// Generate code for parsing a non-terminal
 std::string parseNonTerminal(int nonTerminalNo, const std::string& nt) {
     std::string ntCases = "";
 
+    // For each pair of a non-terminal and terminal in the parse table, add a case
     for (const std::string& s : alphabet) {
         std::pair<std::string, std::string> symbolPair = make_pair(nt, s);
         if (parseTable.count(symbolPair)) {
             std::string tableEntry = "";
-            size_t ruleSize = parseTable[symbolPair].size();
+            size_t ruleSize = parseTable[symbolPair].size(); // number of conjuncts in rule
             size_t conjNo = 0;
+
+            // Generate code for each conjunct in the rule in the table entry
             for (const GNode& conj : parseTable[symbolPair]) {
                 tableEntry += parseConj(conj, conjNo, ruleSize);
                 conjNo++;
@@ -121,6 +136,7 @@ if (sentence[pos] == "{}") {{
         }
     }
 
+    // Add cases to the non-terminal's numbered function
     return std::format(R"(
 
 bool nonTerminal{}() {{
@@ -130,6 +146,7 @@ return false;
     nonTerminalNo, ntCases);
 }
 
+// Main parser function, calls the parser for the start symbol (the last numbered non-terminal)
 std::string mainFunction(int nonTerminalNo) {
     return std::format(R"(
 
@@ -162,23 +179,26 @@ int main(int argc, char **argv) {{
     nonTerminalNo - 1);
 }
 
+// Write recursive descent parser code to file
 void RDCodegen(StrVec ntOrder) {
     std::ofstream parserFile;
     parserFile.open("rd_parser.cpp");
-    parserFile << parserGlobals;
+    parserFile << beginningCode;
 
+    // Write parser functions for terminals
     int terminalNo = 0;
     for (const std::string& s : alphabet) {
         if (s != "") {
-            terminalNos[s] = terminalNo;
+            terminalNos[s] = terminalNo; // assign number to terminal
             parserFile << parseTerminal(terminalNo, s);
             terminalNo++;
         }
     }
 
+    // Write parser functions for non-terminals
     int nonTerminalNo = 0;
     for (const std::string& nt : ntOrder) {
-        nonTerminalNos[nt] = nonTerminalNo;
+        nonTerminalNos[nt] = nonTerminalNo; // assign number to non-terminal
         parserFile << parseNonTerminal(nonTerminalNo, nt);
         nonTerminalNo++;
     }
