@@ -2,6 +2,10 @@
 #include "grammar.h"
 #include "bbnf_parser.h"
 
+//-------------//
+// Input Lexer //
+//-------------//
+
 FILE *bbnfFile; // input file
 static int lineNo = 1;
 static int columnNo = 1;
@@ -100,6 +104,10 @@ static SYMBOL getToken() {
     std::string s(1, currentChar);
     return makeToken(s, INVALID);
 }
+
+//--------------------------//
+// Recursive Descent Parser //
+//--------------------------//
 
 static SYMBOL currentToken; // token that parser is currently reading
 

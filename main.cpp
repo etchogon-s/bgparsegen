@@ -8,6 +8,19 @@
 // Grammar AST Printer //
 //---------------------//
 
+// Print elements of set of strings
+std::string strSetString(StrSet strs) {
+    std::string result = "";
+    for (const std::string& s : strs) {
+        result += " ";
+        if (s == "")
+            result += "epsilon"; // represents empty string
+        else
+            result += s;
+    }
+    return result;
+}
+
 // Make indentation of given width
 std::string makeIndent(int depth) {
     std::string indent = "";
@@ -299,23 +312,6 @@ void Disj::updateTable(std::string nt) {
     return;
 }
 
-//-----------------//
-// Code Generation //
-//-----------------//
-
-// Print elements of set of strings
-std::string strSetString(StrSet strs) {
-    std::string result = "";
-    for (const std::string& s : strs) {
-        result += " ";
-        if (s == "")
-            result += "epsilon"; // represents empty string
-        else
-            result += s;
-    }
-    return result;
-}
-
 //-------------//
 // Main Driver //
 //-------------//
@@ -396,6 +392,7 @@ int main(int argc, char **argv) {
         std::cout << "\n" + makeIndent(1) + "RULE:\n" + nlString(entry.second, 2);
     }
 
+    // Generate recursive descent parser code
     std::reverse(ntOrder.begin(), ntOrder.end()); // reverse order of non-terminals
     RDCodegen(ntOrder);
     return 0;

@@ -3,6 +3,10 @@
 #include "grammar.h"
 #include "rd_codegen.h"
 
+//------------------------------------------//
+// Recursive Descent Parser Code Generation //
+//------------------------------------------//
+
 /* Code that starts parser file
  * sentence is a buffer that holds input
  * pos, start and end keep track of parser position in input */
@@ -192,7 +196,7 @@ int main(int argc, char **argv) {{
     nonTerminalNo - 1);
 }
 
-// Write recursive descent parser code to file
+// Write code to file
 void RDCodegen(StrVec ntOrder) {
     std::ofstream parserFile;
     parserFile.open("rd_parser.cpp");
