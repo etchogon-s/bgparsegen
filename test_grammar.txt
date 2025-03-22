@@ -1,0 +1,5 @@
+S -> A D & ~ B C;
+A -> "a" A | epsilon;
+B -> "a" B "b" | epsilon;
+C -> "c" C | epsilon;
+D -> "b" D "c" | epsilon;
