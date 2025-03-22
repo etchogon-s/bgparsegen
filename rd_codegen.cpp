@@ -65,9 +65,9 @@ R"(        start = pos;
         conjCode);
 
     return std::format(R"(
-pos = start;{}
-if (pos != end)
-return false;
+        pos = start;{}
+        if (pos != end)
+            return false;
 )",
     conjCode);
 }
@@ -81,7 +81,7 @@ static std::string parseConj(const GNode& conj, size_t conjNo, size_t ruleSize) 
     if (conj->isPositive() && (symbolSequence != "")) {
         conjCode = std::format(
 R"(        if (!({}))
-return false;
+            return false;
 )",
         symbolSequence);
 
@@ -98,10 +98,10 @@ return false;
             isLastConj = "\n        pos = end;"; // follows code for last negative conjunct
 
         return std::format(R"(
-pos = start;
-bool success = ({});
-if (success && (pos == end))
-return false;{}
+        pos = start;
+        bool success = ({});
+        if (success && (pos == end))
+            return false;{}
 )", 
         symbolSequence, isLastConj);
     }
@@ -128,9 +128,9 @@ static std::string parseNonTerminal(int nonTerminalNo, const std::string& nt) {
 
             ntCases += std::format(
 R"(
-if (sentence[pos] == "{}") {{
+    if (sentence[pos] == "{}") {{
 {}        return true;
-}}
+    }}
 )", 
             s, tableEntry);
         }
@@ -141,7 +141,7 @@ if (sentence[pos] == "{}") {{
 
 bool nonTerminal{}() {{
 {}
-return false;
+    return false;
 }})", 
     nonTerminalNo, ntCases);
 }
