@@ -3,7 +3,9 @@
 #include "grammar.h"
 #include "rd_codegen.h"
 
-// Code that starts parser file
+/* Code that starts parser file
+ * sentence is a buffer that holds input
+ * pos, start and end keep track of parser position in input */
 static std::string beginningCode = R"(#include <iostream>
 #include <string>
 #include <vector>
@@ -12,7 +14,7 @@ FILE *inputFile;
 std::vector<std::string> sentence;
 size_t pos, start, end;)";
 
-// Parser error handling function
+// Parser error handling function (not currently in use)
 static std::string handleError = R"(
 
 void parseFail() {
@@ -22,7 +24,8 @@ void parseFail() {
 // Assign a number to each terminal and non-terminal
 static std::map<std::string, int> terminalNos, nonTerminalNos;
 
-// Generate code for parsing a terminal: if string matched, advance position in input
+/* Generate code for parsing a terminal
+ * If character matched, success & move forward 1 character, otherwise failure */
 static std::string parseTerminal(int terminalNo, const std::string& s) {
     return std::format(R"(
 
@@ -55,15 +58,18 @@ static std::string parseSymbSeq(const SymbVec& symbols) {
     return symbolSequence;
 }
 
-// Add to conjunct code if it is not the only conjunct in a rule
+// Add to positive conjunct code if it is not the only conjunct in a rule
 static std::string notOnlyConj(std::string conjCode, size_t conjNo) {
     if (conjNo == 0)
         return std::format(
 R"(        start = pos;
 {}        end = pos;
 )", 
-        conjCode);
+        conjCode); // For first conjunct, record positions where parsing starts and ends
 
+    /* For subsequent conjuncts, return to the recorded start position before parsing
+     * If parsing stops before or after the recorded end position, this is a failure,
+     * since a different substring of the input has been parsed */
     return std::format(R"(
         pos = start;{}
         if (pos != end)
@@ -83,7 +89,7 @@ static std::string parseConj(const GNode& conj, size_t conjNo, size_t ruleSize) 
 R"(        if (!({}))
             return false;
 )",
-        symbolSequence);
+        symbolSequence); // If some symbol in sequence is not present, conjunct parsing fails
 
         // Adjust code if rule contains multiple conjuncts
         if (ruleSize > 1)
@@ -94,9 +100,12 @@ R"(        if (!({}))
     // Negative conjunct
     if (!conj->isPositive()) {
         std::string isLastConj = "";
-        if (conjNo == ruleSize - 1)
-            isLastConj = "\n        pos = end;"; // follows code for last negative conjunct
 
+        // After last negative conjunct, move to end of substring
+        if (conjNo == ruleSize - 1)
+            isLastConj = "\n        pos = end;";
+
+        // If negative conjunct is successfully parsed, this is a failure
         return std::format(R"(
         pos = start;
         bool success = ({});
@@ -112,7 +121,7 @@ R"(        if (!({}))
 static std::string parseNonTerminal(int nonTerminalNo, const std::string& nt) {
     std::string ntCases = "";
 
-    // For each pair of a non-terminal and terminal in the parse table, add a case
+    // For each terminal that is paired with the non-terminal in the parse table, add a case
     for (const std::string& s : alphabet) {
         std::pair<std::string, std::string> symbolPair = make_pair(nt, s);
         if (parseTable.count(symbolPair)) {
@@ -126,13 +135,14 @@ static std::string parseNonTerminal(int nonTerminalNo, const std::string& nt) {
                 conjNo++;
             }
 
+            // Add code for all conjuncts to the case
             ntCases += std::format(
 R"(
     if (sentence[pos] == "{}") {{
 {}        return true;
     }}
 )", 
-            s, tableEntry);
+            s, tableEntry); // if return statement is reached, parsing is successful
         }
     }
 
@@ -143,10 +153,13 @@ bool nonTerminal{}() {{
 {}
     return false;
 }})", 
-    nonTerminalNo, ntCases);
+    nonTerminalNo, ntCases); // if function does not return after any case, parsing fails
 }
 
-// Main parser function, calls the parser for the start symbol (the last numbered non-terminal)
+/* Main parser function
+ * Reads characters from input file into buffer
+ * Calls the parsing function for the start symbol (the last numbered non-terminal)
+ * Parser must stop at the end of the input for parsing to succeed */
 static std::string mainFunction(int nonTerminalNo) {
     return std::format(R"(
 
@@ -160,7 +173,6 @@ int main(int argc, char **argv) {{
         return 1;
     }}
     
-    pos = 0;
     char nextChar;
     while ((nextChar = fgetc(inputFile)) != EOF) {{
         if (!isspace(nextChar)) {{
@@ -170,6 +182,7 @@ int main(int argc, char **argv) {{
     }}
     fclose(inputFile);
 
+    pos = 0;
     if (nonTerminal{}() && (pos == sentence.size()))
         std::cout << "Parsing successful\n";
     else
