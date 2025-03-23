@@ -105,10 +105,15 @@ static std::string parseSymbSeq(const SymbVec& symbols, bool posConj, size_t con
             symbFunction += "nonTerminal" + std::to_string(nonTerminalNos[symb.str]) + "()";
 
         if (symbFunction != "") {
+
+            // If conjunct is negative, check if any symbol function has failed
             if (!posConj) {
                 if (symbNo > 0)
-                    symbolSequence += " && "; // functions that are not the first one are preceded by &&
+                    symbolSequence += " && ";
                 symbolSequence += symbFunction;
+
+            /* If conjunct is positive, add a node for each symbol to the conjunct subtree
+             * If one symbol function fails, whole conjunct fails */
             } else {
                 std::string symbNode = std::format("conj{}node{}", conjNo, symbNo);
                 symbolSequence += std::format(
@@ -120,7 +125,6 @@ R"(        PNode {} = {};
                 symbNode, symbFunction, symbNode, conjNo, symbNode);
             }
         }
-
         symbNo++;
     }
     return symbolSequence;
@@ -176,7 +180,7 @@ static std::string parseConj(const GNode& conj, size_t conjNo, size_t ruleSize) 
 R"(        PNodeList conj{};
 {}
 )",
-        conjNo, symbolSequence); // If some symbol in sequence is not present, conjunct parsing fails
+        conjNo, symbolSequence); // create new subtree version for conjunct
 
         // Adjust code if rule contains multiple conjuncts
         if (ruleSize > 1)
@@ -186,7 +190,7 @@ R"(        PNodeList conj{};
 R"({}        subTreeVersions.push_back(conj{});
 
 )",
-        conjCode, conjNo);
+        conjCode, conjNo); // add to subtree versions for this non-terminal
     }
 
     return conjCode;
@@ -235,7 +239,8 @@ PNode nonTerminal{}() {{
 /* Main parser function
  * Reads characters from input file into buffer
  * Calls the parsing function for the start symbol (the last numbered non-terminal)
- * Parser must stop at the end of the input for parsing to succeed */
+ * Parser must stop at the end of the input for parsing to succeed
+ * If parsing succeeds, print parse tree */
 static std::string mainFunction(int nonTerminalNo) {
     return std::format(R"(
 
