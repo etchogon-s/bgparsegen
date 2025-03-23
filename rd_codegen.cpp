@@ -11,8 +11,56 @@
  * sentence is a buffer that holds input
  * pos, start and end keep track of parser position in input */
 static std::string beginningCode = R"(#include <iostream>
+#include <memory>
 #include <string>
 #include <vector>
+
+std::string makeIndent(int depth) {
+    std::string indent = "";
+    while (depth > 0) {
+        indent += "|   ";
+        depth--;
+    }
+    return indent;
+}
+
+class ParseNode {
+    public:
+        virtual ~ParseNode() {}
+        virtual std::string toString(int depth) {return "";};
+};
+
+using PNode = std::shared_ptr<ParseNode>;
+using PNodeList = std::vector<PNode>;
+
+class Leaf: public ParseNode {
+    std::string Symbol;
+
+    public:
+        Leaf(std::string s): Symbol(s) {}
+        std::string toString(int depth) override {
+            return makeIndent(depth) + "TERMINAL " + Symbol + "\n";
+        }
+};
+
+class Internal: public ParseNode {
+    std::string Symbol;
+    std::vector<PNodeList> Children;
+
+    public:
+        Internal(std::string s, std::vector<PNodeList> c): Symbol(s), Children(std::move(c)) {}
+        std::string toString(int depth) override {
+            std::string result = makeIndent(depth) + "NON-TERMINAL " + Symbol + "\n";
+            for (const auto& conjNodes : Children) {
+                result += makeIndent(depth + 1) + "CONJUNCT\n";
+                for (const PNode& n : conjNodes) {
+                    if (n)
+                        result += n->toString(depth + 2);
+                }
+            }
+            return result;
+        }
+};
 
 FILE *inputFile;
 std::vector<std::string> sentence;
@@ -33,37 +81,53 @@ static std::map<std::string, int> terminalNos, nonTerminalNos;
 static std::string parseTerminal(int terminalNo, const std::string& s) {
     return std::format(R"(
 
-bool terminal{}() {{
+PNode terminal{}() {{
     if (sentence[pos] == "{}") {{
         pos++;
-        return true;
+        return std::make_shared<Leaf>("{}");
     }} else {{
-        return false;
+        return nullptr;
     }}
 }})",
-    terminalNo, s);
+    terminalNo, s, s);
 }
 
 // Generate code for parsing a sequence of symbols
-static std::string parseSymbSeq(const SymbVec& symbols) {
+static std::string parseSymbSeq(const SymbVec& symbols, bool posConj, size_t conjNo) {
     std::string symbolSequence = "";
+
     int symbNo = 0;
     for (const SYMBOL& symb : symbols) {
-        if (symbNo > 0)
-            symbolSequence += " && "; // functions that are not the first one are preceded by &&
-
-        // Add numbered terminal or non-terminal function
+        std::string symbFunction = "";
         if (symb.type == LITERAL)
-            symbolSequence += "terminal" + std::to_string(terminalNos[symb.str]) + "()";
+            symbFunction += "terminal" + std::to_string(terminalNos[symb.str]) + "()";
         else if (symb.type == NON_TERM)
-            symbolSequence += "nonTerminal" + std::to_string(nonTerminalNos[symb.str]) + "()";
+            symbFunction += "nonTerminal" + std::to_string(nonTerminalNos[symb.str]) + "()";
+
+        if (symbFunction != "") {
+            if (!posConj) {
+                if (symbNo > 0)
+                    symbolSequence += " && "; // functions that are not the first one are preceded by &&
+                symbolSequence += symbFunction;
+            } else {
+                std::string symbNode = std::format("conj{}node{}", conjNo, symbNo);
+                symbolSequence += std::format(
+R"(        PNode {} = {};
+        if (!{})
+            return nullptr;
+        conj{}.push_back({});
+)",
+                symbNode, symbFunction, symbNode, conjNo, symbNode);
+            }
+        }
+
         symbNo++;
     }
     return symbolSequence;
 }
 
-// Add to positive conjunct code if it is not the only conjunct in a rule
-static std::string notOnlyConj(std::string conjCode, size_t conjNo) {
+// Add to conjunct code if it is one of many positive conjuncts
+static std::string manyPosConj(std::string conjCode, size_t conjNo) {
     if (conjNo == 0)
         return std::format(
 R"(        start = pos;
@@ -77,32 +141,19 @@ R"(        start = pos;
     return std::format(R"(
         pos = start;{}
         if (pos != end)
-            return false;
+            return nullptr;
 )",
     conjCode);
 }
 
 // Generate code for parsing a conjunct
 static std::string parseConj(const GNode& conj, size_t conjNo, size_t ruleSize) {
+    bool posConj = conj->isPositive();
     std::string conjCode = "";
-    std::string symbolSequence = parseSymbSeq(conj->getSymbols());
-    
-    // Positive conjunct that contains at least 1 (non-)terminal
-    if (conj->isPositive() && (symbolSequence != "")) {
-        conjCode = std::format(
-R"(        if (!({}))
-            return false;
-)",
-        symbolSequence); // If some symbol in sequence is not present, conjunct parsing fails
-
-        // Adjust code if rule contains multiple conjuncts
-        if (ruleSize > 1)
-            return notOnlyConj(conjCode, conjNo);
-        return conjCode;
-    }
+    std::string symbolSequence = parseSymbSeq(conj->getSymbols(), posConj, conjNo);
 
     // Negative conjunct
-    if (!conj->isPositive()) {
+    if (!posConj) {
         std::string isLastConj = "";
 
         // After last negative conjunct, move to end of substring
@@ -114,10 +165,30 @@ R"(        if (!({}))
         pos = start;
         bool success = ({});
         if (success && (pos == end))
-            return false;{}
+            return nullptr;{}
 )", 
         symbolSequence, isLastConj);
     }
+    
+    // Positive conjunct that contains at least 1 (non-)terminal
+    if (posConj && (symbolSequence != "")) {
+        conjCode = std::format(
+R"(        PNodeList conj{};
+{}
+)",
+        conjNo, symbolSequence); // If some symbol in sequence is not present, conjunct parsing fails
+
+        // Adjust code if rule contains multiple conjuncts
+        if (ruleSize > 1)
+            conjCode = manyPosConj(conjCode, conjNo);
+
+        return std::format(
+R"({}        subTreeVersions.push_back(conj{});
+
+)",
+        conjCode, conjNo);
+    }
+
     return conjCode;
 }
 
@@ -143,19 +214,20 @@ static std::string parseNonTerminal(int nonTerminalNo, const std::string& nt) {
             ntCases += std::format(
 R"(
     if (sentence[pos] == "{}") {{
-{}        return true;
+{}        return std::make_shared<Internal>("{}", std::move(subTreeVersions));
     }}
 )", 
-            s, tableEntry); // if return statement is reached, parsing is successful
+            s, tableEntry, nt); // if return statement is reached, parsing is successful
         }
     }
 
     // Add cases to the non-terminal's numbered function
     return std::format(R"(
 
-bool nonTerminal{}() {{
+PNode nonTerminal{}() {{
+    std::vector<PNodeList> subTreeVersions;
 {}
-    return false;
+    return nullptr;
 }})", 
     nonTerminalNo, ntCases); // if function does not return after any case, parsing fails
 }
@@ -187,11 +259,16 @@ int main(int argc, char **argv) {{
     fclose(inputFile);
 
     pos = 0;
-    if (nonTerminal{}() && (pos == sentence.size()))
+    PNode root = nonTerminal{}();
+
+    if (root && (pos == sentence.size())) {{
         std::cout << "Parsing successful\n";
-    else
-        std::cout << "Parsing failed\n";
-    return 0;
+        std::cout << root->toString(0);
+        return 0;
+    }}
+
+    std::cout << "Parsing failed\n";
+    return 1;
 }})", 
     nonTerminalNo - 1);
 }
@@ -199,7 +276,7 @@ int main(int argc, char **argv) {{
 // Write code to file
 void RDCodegen(StrVec ntOrder) {
     std::ofstream parserFile;
-    parserFile.open("rd_parser.cpp");
+    parserFile.open("parser.cpp");
     parserFile << beginningCode;
 
     // Write parser functions for terminals
