@@ -320,8 +320,10 @@ void Disj::updateTable(std::string nt) {
 int main(int argc, char **argv) {
     if (argc == 3) {
         bbnfFile = fopen(argv[1], "r");
-        if (bbnfFile == NULL)
+        if (bbnfFile == NULL) {
             std::cout << "Error opening file\n";
+            return 1;
+        }
     } else {
         std::cout << "Usage: ./code <input file> <algorithm>\n";
         return 1;
