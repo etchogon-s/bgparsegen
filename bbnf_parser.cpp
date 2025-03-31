@@ -16,8 +16,16 @@ static SYMBOL makeToken(std::string lexVal, int tokenType) {
     token.str = lexVal;
     token.type = tokenType;
     token.lineNo = lineNo;
-    token.columnNo = columnNo - lexVal.length() - 1;
+    token.columnNo = columnNo - lexVal.length();
+    if (tokenType == LITERAL)
+        token.columnNo--; // account for closing "
     return token;
+}
+
+// Lexer error: show incorrect sequence and its position
+static void lexError(std::string unexpected) {
+    std::cout << "Lexer error [ln " + std::to_string(lineNo) + ", col " + std::to_string(columnNo - unexpected.length()) + "]: unexpected sequence '" + unexpected + "'\n";
+    exit(1); // quit on error
 }
 
 // Lexer: read characters from file and convert into tokens
@@ -54,7 +62,7 @@ static SYMBOL getToken() {
 
         columnNo++; // discard closing "
         if (currentStr == "")
-            return makeToken(currentStr, EPSILON); // epsilon = empty string
+            lexError("\"\""); // cannot have an empty string
         return makeToken(currentStr, LITERAL);
     }
 
@@ -69,7 +77,7 @@ static SYMBOL getToken() {
     if (currentStr != "") {
         fseek(bbnfFile, -1, SEEK_CUR); // don't lose current character, move back 1
         if (currentStr == "epsilon")
-            return makeToken("", EPSILON);
+            return makeToken(currentStr, EPSILON);
         return makeToken(currentStr, NON_TERM);
     }
 
@@ -79,9 +87,8 @@ static SYMBOL getToken() {
             columnNo += 2;
             return makeToken("->", DERIVE);
         } else {
-            fseek(bbnfFile, -1, SEEK_CUR);  // don't lose next character, move back 1
             columnNo++;
-            return makeToken("-", INVALID); // - without > is invalid
+            lexError("-"); // - without > is invalid
         }
     }
 
@@ -102,6 +109,7 @@ static SYMBOL getToken() {
 
     // If current character not recognised, create invalid token
     std::string s(1, currentChar);
+    lexError(s);
     return makeToken(s, INVALID);
 }
 
@@ -113,7 +121,7 @@ static SYMBOL currentToken; // token that parser is currently reading
 
 // Parser error: show incorrect (current) token, its position, and expected sequence
 static void parseError(std::string expected) {
-    std::cout << "Parse error [ln " + std::to_string(currentToken.lineNo) + ", col " + std::to_string(currentToken.columnNo) + "]: unexpected token '" + currentToken.str + "' (expecting " + expected + ")\n";
+    std::cout << "Parser error [ln " + std::to_string(currentToken.lineNo) + ", col " + std::to_string(currentToken.columnNo) + "]: unexpected token '" + currentToken.str + "' (expecting " + expected + ")\n";
     exit(1); // quit on error
 }
 
