@@ -11,12 +11,12 @@ static int lineNo = 1;
 static int columnNo = 1;
 
 // Create new token
-static SYMBOL makeToken(std::string lexVal, int tokenType) {
+static SYMBOL makeToken(std::string str, int tokenType) {
     SYMBOL token;
-    token.str = lexVal;
+    token.str = str;
     token.type = tokenType;
     token.lineNo = lineNo;
-    token.columnNo = columnNo - lexVal.length();
+    token.columnNo = columnNo - str.length();
     if (tokenType == LITERAL)
         token.columnNo--; // account for closing "
     return token;
