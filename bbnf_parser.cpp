@@ -142,7 +142,7 @@ static SYMBOL parseSymbol() {
         parseError("non-terminal or literal");
 
     // Record symbol for alphabet if terminal
-    if (symb.type != NON_TERM)
+    if (symb.type == LITERAL)
         alphabet.insert(symb.str);
     return symb;
 }

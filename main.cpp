@@ -333,6 +333,7 @@ int main(int argc, char **argv) {
     std::map<std::string, GNode> grammar = parseGrammar();
     fclose(bbnfFile);
     std::cout << "Alphabet:" + strSetString(alphabet) + "\n"; // print alphabet
+    alphabet.insert("");
 
     // Print grammar AST
     std::cout << "\nGrammar AST\n";
