@@ -12,6 +12,7 @@
  * pos, start and end keep track of parser position in input */
 static std::string beginningCode = R"(#include <iostream>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -62,8 +63,21 @@ class Internal: public ParseNode {
         }
 };
 
+struct TOKEN {
+    std::string str;
+    int lineNo, columnNo;
+};
+
+TOKEN makeToken(std::string str, int lineNo, int columnNo) {
+    TOKEN token;
+    token.str = str;
+    token.lineNo = lineNo;
+    token.columnNo = columnNo - str.length();
+    return token;
+}
+
 FILE *inputFile;
-std::vector<std::string> sentence;
+std::vector<TOKEN> sentence;
 size_t pos, start, end;)";
 
 // Parser error handling function (not currently in use)
@@ -82,7 +96,7 @@ static std::string parseTerminal(int terminalNo, const std::string& s) {
     return std::format(R"(
 
 PNode terminal{}() {{
-    if (sentence[pos] == "{}") {{
+    if (sentence[pos].str == "{}") {{
         pos++;
         return std::make_shared<Leaf>("{}");
     }} else {{
@@ -217,7 +231,7 @@ static std::string parseNonTerminal(int nonTerminalNo, const std::string& nt) {
             // Add code for all conjuncts to the case
             ntCases += std::format(
 R"(
-    if (sentence[pos] == "{}") {{
+    if (sentence[pos].str == "{}") {{
 {}        return std::make_shared<Internal>("{}", std::move(subTreeVersions));
     }}
 )", 
@@ -237,7 +251,7 @@ PNode nonTerminal{}() {{
 }
 
 /* Main parser function
- * Reads characters from input file into buffer
+ * Lexer: reads characters from input file and converts them to tokens
  * Calls the parsing function for the start symbol (the last numbered non-terminal)
  * Parser must stop at the end of the input for parsing to succeed
  * If parsing succeeds, print parse tree */
@@ -254,18 +268,34 @@ int main(int argc, char **argv) {{
         return 1;
     }}
     
-    char nextChar;
-    while ((nextChar = fgetc(inputFile)) != EOF) {{
-        if (!isspace(nextChar)) {{
-            std::string s(1, nextChar);
-            sentence.push_back(s);
+    char currentChar;
+    std::string currentStr = "";
+    int lineNo = 1;
+    int columnNo = 1;
+    while ((currentChar = fgetc(inputFile)) != EOF) {{
+        columnNo++;
+        if ((currentChar == '\n') || (currentChar == '\r')) {{
+            lineNo++;
+            columnNo = 1;
+        }}
+
+        if (!isspace(currentChar))
+            currentStr += currentChar;
+
+        if (terminals.count(currentStr) > 0) {{
+            sentence.push_back(makeToken(currentStr, lineNo, columnNo));
+            currentStr = "";
+        }} else {{
+            if (currentStr.length() >= 1) {{
+                std::cout << "Lexer error [ln " + std::to_string(lineNo) + ", col " + std::to_string(columnNo - currentStr.length()) + "]: unexpected sequence '" + currentStr + "'\n";
+                return 1;
+            }}
         }}
     }}
     fclose(inputFile);
 
     pos = 0;
     PNode root = nonTerminal{}();
-
     if (root && (pos == sentence.size())) {{
         std::cout << "Parsing successful\n";
         std::cout << root->toString(0);
@@ -285,14 +315,19 @@ void RDCodegen(StrVec ntOrder) {
     parserFile << beginningCode;
 
     // Write parser functions for terminals
+    std::string terminalSet = "\n\nstd::set<std::string> terminals = {";
     int terminalNo = 0;
     for (const std::string& s : alphabet) {
         if (s != "") {
             terminalNos[s] = terminalNo; // assign number to terminal
             parserFile << parseTerminal(terminalNo, s);
+            if (terminalNo > 0)
+                terminalSet += ", ";
+            terminalSet += "\"" + s + "\"";
             terminalNo++;
         }
     }
+    terminalSet += "};";
 
     // Write parser functions for non-terminals
     int nonTerminalNo = 0;
@@ -302,6 +337,7 @@ void RDCodegen(StrVec ntOrder) {
         nonTerminalNo++;
     }
 
+    parserFile << terminalSet;
     parserFile << mainFunction(nonTerminalNo);
     parserFile.close();
 }
