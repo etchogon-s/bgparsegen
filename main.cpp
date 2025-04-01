@@ -318,14 +318,14 @@ void Disj::updateTable(std::string nt) {
 
 // Get input file and user's algorithm choice
 int main(int argc, char **argv) {
-    if (argc == 3) {
+    if (argc == 2) {
         bbnfFile = fopen(argv[1], "r");
         if (bbnfFile == NULL) {
             std::cout << "Error opening file\n";
             return 1;
         }
     } else {
-        std::cout << "Usage: ./code <input file> <algorithm>\n";
+        std::cout << "Usage: ./code <input file>\n";
         return 1;
     }
 
