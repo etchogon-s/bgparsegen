@@ -78,13 +78,16 @@ TOKEN makeToken(std::string str, int lineNo, int columnNo) {
 
 FILE *inputFile;
 std::vector<TOKEN> sentence;
-size_t pos, start, end;)";
+size_t pos, start, end;
 
-// Parser error handling function (not currently in use)
-static std::string handleError = R"(
+void tokenFail(bool wanted, std::string expected) {
+    if (!wanted)
+        return;
 
-void parseFail() {
-    errors.push_back("Parse error [ln 1, col " + std::to_string(pos + 1) + "]: unexpected token " + current + ", expecting " + expected + "\n");
+    TOKEN current = sentence[pos];
+    std::string failPos = (current.str == "") ? "" : " [ln " + std::to_string(current.lineNo) + ", col " + std::to_string(current.columnNo) + "]";
+    std::string failStr = (current.str == "") ? "EOF" : current.str;
+    std::cout << "Parser error" + failPos + ": unexpected token " + failStr + ", expecting " + expected + "\n";
 })";
 
 // Assign a number to each terminal and non-terminal
@@ -95,15 +98,16 @@ static std::map<std::string, int> terminalNos, nonTerminalNos;
 static std::string parseTerminal(int terminalNo, const std::string& s) {
     return std::format(R"(
 
-PNode terminal{}() {{
+PNode terminal{}(bool wanted) {{
     if (sentence[pos].str == "{}") {{
         pos++;
         return std::make_shared<Leaf>("{}");
     }} else {{
+        tokenFail(wanted, "{}");
         return nullptr;
     }}
 }})",
-    terminalNo, s, s);
+    terminalNo, s, s, s);
 }
 
 // Generate code for parsing a sequence of symbols
@@ -113,10 +117,17 @@ static std::string parseSymbSeq(const SymbVec& symbols, bool posConj, size_t con
     int symbNo = 0;
     for (const SYMBOL& symb : symbols) {
         std::string symbFunction = "";
-        if (symb.type == LITERAL)
-            symbFunction += "terminal" + std::to_string(terminalNos[symb.str]) + "()";
-        else if (symb.type == NON_TERM)
-            symbFunction += "nonTerminal" + std::to_string(nonTerminalNos[symb.str]) + "()";
+        if (symb.type != EPSILON) {{
+            if (symb.type == LITERAL)
+                symbFunction += "terminal" + std::to_string(terminalNos[symb.str]);
+            else
+                symbFunction += "nonTerminal" + std::to_string(nonTerminalNos[symb.str]);
+
+            if (posConj)
+                symbFunction += "(wanted)";
+            else
+                symbFunction += "(!wanted)";
+        }}
 
         if (symbFunction != "") {
 
@@ -213,6 +224,7 @@ R"({}        subTreeVersions.push_back(conj{});
 // Generate code for parsing a non-terminal
 static std::string parseNonTerminal(int nonTerminalNo, const std::string& nt) {
     std::string ntCases = "";
+    std::string expected = "";
 
     // For each terminal that is paired with the non-terminal in the parse table, add a case
     for (const std::string& s : alphabet) {
@@ -236,18 +248,22 @@ R"(
     }}
 )", 
             s, tableEntry, nt); // if return statement is reached, parsing is successful
+
+            std::string displayS = (s == "") ? "EOF" : s;
+            expected = (expected == "") ? expected += displayS : expected += ", " + displayS;
         }
     }
 
     // Add cases to the non-terminal's numbered function
     return std::format(R"(
 
-PNode nonTerminal{}() {{
+PNode nonTerminal{}(bool wanted) {{
     std::vector<PNodeList> subTreeVersions;
 {}
+    tokenFail(wanted, "{}");
     return nullptr;
 }})", 
-    nonTerminalNo, ntCases); // if function does not return after any case, parsing fails
+    nonTerminalNo, ntCases, expected); // if function does not return after any case, parsing fails
 }
 
 /* Main parser function
@@ -295,7 +311,7 @@ int main(int argc, char **argv) {{
     fclose(inputFile);
 
     pos = 0;
-    PNode root = nonTerminal{}();
+    PNode root = nonTerminal{}(true);
     if (root && (pos == sentence.size())) {{
         std::cout << "Parsing successful\n";
         std::cout << root->toString(0);
