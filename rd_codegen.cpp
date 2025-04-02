@@ -96,14 +96,18 @@ void tokenFail(bool wanted, std::string expected) {
     std::cout << "Parser error" + failPos + ": unexpected token " + failStr + ", expecting " + expected + "\n";
 }
 
-void lengthFail(bool wanted, size_t start, size_t end) {
+void conjFail(bool wanted, size_t start, size_t end, bool posConj, std::string conjStr) {
     if (!wanted)
         return;
 
     std::string currentPos = displayPos(sentence[pos - 1].lineNo, sentence[pos - 1].columnNo);
     std::string startPos = displayPos(sentence[start].lineNo, sentence[start].columnNo);
-    std::string endPos = displayPos(sentence[end - 1].lineNo, sentence[end - 1].columnNo);
-    std::cout << "Parser error" + currentPos + ": conjunct parsing starting at" + startPos + " should end at" + endPos + "\n";
+    std::string report = "Parser error" + currentPos + ": parsing of conjunct" + conjStr + " starting at" + startPos;
+
+    if (posConj)
+        std::cout << report + " should end at" + displayPos(sentence[end - 1].lineNo, sentence[end - 1].columnNo) + "\n";
+    else
+        std::cout << report + " is unwanted\n";
 })";
 
 // Assign a number to each terminal and non-terminal
@@ -171,33 +175,16 @@ R"(        PNode {} = {};
     return symbolSequence;
 }
 
-// Add to conjunct code if it is one of many positive conjuncts
-static std::string manyPosConj(std::string conjCode, size_t conjNo) {
-    if (conjNo == 0)
-        return std::format(
-R"(        start = pos;
-{}        end = pos;
-)", 
-        conjCode); // For first conjunct, record positions where parsing starts and ends
-
-    /* For subsequent conjuncts, return to the recorded start position before parsing
-     * If parsing stops before or after the recorded end position, this is a failure,
-     * since a different substring of the input has been parsed */
-    return std::format(R"(
-        pos = start;{}
-        if (pos != end) {{
-            lengthFail(wanted, start, end);
-            return nullptr;
-        }}
-)",
-    conjCode);
-}
-
 // Generate code for parsing a conjunct
 static std::string parseConj(const GNode& conj, size_t conjNo, size_t ruleSize) {
     bool posConj = conj->isPositive();
     std::string conjCode = "";
-    std::string symbolSequence = parseSymbSeq(conj->getSymbols(), posConj, conjNo);
+    const SymbVec& conjSymbols = conj->getSymbols();
+    std::string symbolSequence = parseSymbSeq(conjSymbols, posConj, conjNo);
+
+    std::string conjStr = "";
+    for (const SYMBOL& symb : conjSymbols)
+        conjStr += " " + symb.str;
 
     // Negative conjunct
     if (!posConj) {
@@ -211,10 +198,12 @@ static std::string parseConj(const GNode& conj, size_t conjNo, size_t ruleSize) 
         return std::format(R"(
         pos = start;
         bool success = ({});
-        if (success && (pos == end))
-            return nullptr;{}
+        if (success && (pos == end)) {{
+            conjFail(wanted, start, end, false, "{}");
+            return nullptr;
+        }}{}
 )", 
-        symbolSequence, isLastConj);
+        symbolSequence, conjStr, isLastConj);
     }
     
     // Positive conjunct that contains at least 1 (non-)terminal
@@ -226,8 +215,27 @@ R"(        PNodeList conj{};
         conjNo, symbolSequence); // create new subtree version for conjunct
 
         // Adjust code if rule contains multiple conjuncts
-        if (ruleSize > 1)
-            conjCode = manyPosConj(conjCode, conjNo);
+        if (ruleSize > 1) {
+            if (conjNo == 0)
+                conjCode = std::format(
+R"(        start = pos;
+{}        end = pos;
+)", 
+                conjCode); // Record positions where first conjunct starts and ends
+
+            /* For subsequent conjuncts, return to recorded start position before parsing
+             * If parsing stops before or after recorded end position, this is a failure,
+             * since a different substring of the input has been parsed */
+            else
+                conjCode = std::format(R"(
+        pos = start;{}
+        if (pos != end) {{
+            conjFail(wanted, start, end, true, "{}");
+            return nullptr;
+        }}
+)",
+                conjCode, conjStr);
+        }
 
         return std::format(
 R"({}        subTreeVersions.push_back(conj{});
