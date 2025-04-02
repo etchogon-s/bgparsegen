@@ -80,14 +80,30 @@ FILE *inputFile;
 std::vector<TOKEN> sentence;
 size_t pos, start, end;
 
+std::string displayPos(int lineNo, int columnNo) {
+    if (lineNo == 0)
+        return " [end]";
+    return " [ln " + std::to_string(lineNo) + ", col " + std::to_string(columnNo) + "]";
+}
+
 void tokenFail(bool wanted, std::string expected) {
     if (!wanted)
         return;
 
     TOKEN current = sentence[pos];
-    std::string failPos = (current.str == "") ? "" : " [ln " + std::to_string(current.lineNo) + ", col " + std::to_string(current.columnNo) + "]";
+    std::string failPos = displayPos(current.lineNo, current.columnNo);
     std::string failStr = (current.str == "") ? "EOF" : current.str;
     std::cout << "Parser error" + failPos + ": unexpected token " + failStr + ", expecting " + expected + "\n";
+}
+
+void lengthFail(bool wanted, size_t start, size_t end) {
+    if (!wanted)
+        return;
+
+    std::string currentPos = displayPos(sentence[pos - 1].lineNo, sentence[pos - 1].columnNo);
+    std::string startPos = displayPos(sentence[start].lineNo, sentence[start].columnNo);
+    std::string endPos = displayPos(sentence[end - 1].lineNo, sentence[end - 1].columnNo);
+    std::cout << "Parser error" + currentPos + ": conjunct parsing starting at" + startPos + " should end at" + endPos + "\n";
 })";
 
 // Assign a number to each terminal and non-terminal
@@ -169,8 +185,10 @@ R"(        start = pos;
      * since a different substring of the input has been parsed */
     return std::format(R"(
         pos = start;{}
-        if (pos != end)
+        if (pos != end) {{
+            lengthFail(wanted, start, end);
             return nullptr;
+        }}
 )",
     conjCode);
 }
@@ -312,10 +330,14 @@ int main(int argc, char **argv) {{
 
     pos = 0;
     PNode root = nonTerminal{}(true);
-    if (root && (pos == sentence.size())) {{
-        std::cout << "Parsing successful\n";
-        std::cout << root->toString(0);
-        return 0;
+    if (root) {{
+        if (pos == sentence.size()) {{
+            std::cout << "Parsing successful\n";
+            std::cout << root->toString(0);
+            return 0;
+        }}
+
+        std::cout << "Parser error" + displayPos(sentence[pos].lineNo, sentence[pos].columnNo) + ": parsing terminated before end of input\n";
     }}
 
     std::cout << "Parsing failed\n";
