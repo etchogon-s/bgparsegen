@@ -108,27 +108,20 @@ void conjFail(bool wanted, size_t start, size_t end, bool posConj, std::string c
         std::cout << report + " should end at" + displayPos(sentence[end - 1].lineNo, sentence[end - 1].columnNo) + "\n";
     else
         std::cout << report + " is unwanted\n";
+}
+
+PNode terminal(bool wanted, std::string tokenStr) {
+    if (sentence[pos].str == tokenStr) {
+        pos++;
+        return std::make_shared<Leaf>(tokenStr);
+    } else {
+        tokenFail(wanted, tokenStr);
+        return nullptr;
+    }
 })";
 
-// Assign a number to each terminal and non-terminal
-static std::map<std::string, int> terminalNos, nonTerminalNos;
-
-/* Generate code for parsing a terminal
- * If character matched, success & move forward 1 character, otherwise failure */
-static std::string parseTerminal(int terminalNo, const std::string& s) {
-    return std::format(R"(
-
-PNode terminal{}(bool wanted) {{
-    if (sentence[pos].str == "{}") {{
-        pos++;
-        return std::make_shared<Leaf>("{}");
-    }} else {{
-        tokenFail(wanted, "{}");
-        return nullptr;
-    }}
-}})",
-    terminalNo, s, s, s);
-}
+// Assign a number to each non-terminal
+static std::map<std::string, int> nonTerminalNos;
 
 // Generate code for parsing a sequence of symbols
 static std::string parseSymbSeq(const SymbVec& symbols, bool posConj, size_t conjNo) {
@@ -137,17 +130,16 @@ static std::string parseSymbSeq(const SymbVec& symbols, bool posConj, size_t con
     int symbNo = 0;
     for (const SYMBOL& symb : symbols) {
         std::string symbFunction = "";
-        if (symb.type != EPSILON) {{
-            if (symb.type == LITERAL)
-                symbFunction += "terminal" + std::to_string(terminalNos[symb.str]);
-            else
-                symbFunction += "nonTerminal" + std::to_string(nonTerminalNos[symb.str]);
+        if (symb.type != EPSILON) {
+            std::string wantedStr = "wanted";
+            if (!posConj)
+                wantedStr = "!wanted";
 
-            if (posConj)
-                symbFunction += "(wanted)";
+            if (symb.type == LITERAL)
+                symbFunction += "terminal(" + wantedStr + ", \"" + symb.str + "\"" + ")";
             else
-                symbFunction += "(!wanted)";
-        }}
+                symbFunction += "nonTerminal" + std::to_string(nonTerminalNos[symb.str]) +"(" + wantedStr + ")";
+        }
 
         if (symbFunction != "") {
 
@@ -365,8 +357,6 @@ void RDCodegen(StrVec ntOrder) {
     int terminalNo = 0;
     for (const std::string& s : alphabet) {
         if (s != "") {
-            terminalNos[s] = terminalNo; // assign number to terminal
-            parserFile << parseTerminal(terminalNo, s);
             if (terminalNo > 0)
                 terminalSet += ", ";
             terminalSet += "\"" + s + "\"";
