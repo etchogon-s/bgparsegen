@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-// Types of symbols used in BBNF
+// Types of symbols used in input
 enum SYMBOL_TYPE {
     NON_TERM, // non-terminal symbol
     LITERAL,  // terminal (string literal)

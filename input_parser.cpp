@@ -1,12 +1,12 @@
 #include <iostream>
 #include "grammar.h"
-#include "bbnf_parser.h"
+#include "input_parser.h"
 
 //-------------//
 // Input Lexer //
 //-------------//
 
-FILE *bbnfFile; // input file
+FILE *inpFile; // input file
 static int lineNo = 1;
 static int columnNo = 1;
 
@@ -34,7 +34,7 @@ static SYMBOL getToken() {
     std::string currentStr = ""; // holds string to be tokenised
 
     // Skip whitespace
-    while (isspace(currentChar = fgetc(bbnfFile))) {
+    while (isspace(currentChar = fgetc(inpFile))) {
         columnNo++;
         if ((currentChar == '\n') || (currentChar == '\r')) {
             lineNo++;
@@ -47,13 +47,13 @@ static SYMBOL getToken() {
         columnNo++; // discard opening "
 
         // Add characters to string until closing " reached
-        while ((currentChar = fgetc(bbnfFile)) != '"') {
+        while ((currentChar = fgetc(inpFile)) != '"') {
             if (currentChar == '\\') { // \" escape sequence for " in string
-                if ((nextChar = fgetc(bbnfFile)) == '"') {
+                if ((nextChar = fgetc(inpFile)) == '"') {
                     columnNo++;
                     currentChar = nextChar; // skip \ in currentStr
                 } else {
-                    fseek(bbnfFile, -1, SEEK_CUR); // don't lose next character, move back 1
+                    fseek(inpFile, -1, SEEK_CUR); // don't lose next character, move back 1
                 }
             }
             currentStr += currentChar;
@@ -70,12 +70,12 @@ static SYMBOL getToken() {
     while (isalnum(currentChar) || (currentChar == '_')) {
         currentStr += currentChar;
         columnNo++;
-        currentChar = fgetc(bbnfFile);
+        currentChar = fgetc(inpFile);
     }
 
     // If characters have been added to string, return non-terminal or epsilon token
     if (currentStr != "") {
-        fseek(bbnfFile, -1, SEEK_CUR); // don't lose current character, move back 1
+        fseek(inpFile, -1, SEEK_CUR); // don't lose current character, move back 1
         if (currentStr == "epsilon")
             return makeToken(currentStr, EPSILON);
         return makeToken(currentStr, NON_TERM);
@@ -83,7 +83,7 @@ static SYMBOL getToken() {
 
     // After -, check for > to build -> derivation symbol token
     if (currentChar == '-') {
-        if ((nextChar = fgetc(bbnfFile)) == '>') {
+        if ((nextChar = fgetc(inpFile)) == '>') {
             columnNo += 2;
             return makeToken("->", DERIVE);
         } else {

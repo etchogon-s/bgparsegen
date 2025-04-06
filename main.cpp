@@ -1,7 +1,7 @@
 #include <algorithm>
 #include <iostream>
 #include "grammar.h"
-#include "bbnf_parser.h"
+#include "input_parser.h"
 #include "rd_codegen.h"
 
 //---------------------//
@@ -319,8 +319,8 @@ void Disj::updateTable(std::string nt) {
 // Get input file and user's algorithm choice
 int main(int argc, char **argv) {
     if (argc == 2) {
-        bbnfFile = fopen(argv[1], "r");
-        if (bbnfFile == NULL) {
+        inpFile = fopen(argv[1], "r");
+        if (inpFile == NULL) {
             std::cout << "Error opening file\n";
             return 1;
         }
@@ -331,7 +331,7 @@ int main(int argc, char **argv) {
 
     // Parse input file
     std::map<std::string, GNode> grammar = parseGrammar();
-    fclose(bbnfFile);
+    fclose(inpFile);
     std::cout << "Alphabet:" + strSetString(alphabet) + "\n"; // print alphabet
     alphabet.insert("");
 
