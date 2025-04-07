@@ -1,5 +1,5 @@
 S -> A D & ~ B C;
-A -> "a" A | epsilon;
-B -> "a" B "b" | epsilon;
-C -> "c" C | epsilon;
-D -> "b" D "c" | epsilon;
+A -> "a" A | EPSILON;
+B -> "a" B "b" | EPSILON;
+C -> "c" C | EPSILON;
+D -> "b" D "c" | EPSILON;
