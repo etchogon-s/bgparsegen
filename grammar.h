@@ -11,8 +11,11 @@
 // Types of symbols used in input
 enum SYMBOL_TYPE {
     NON_TERM, // non-terminal symbol
-    LITERAL,  // terminal (string literal)
-    EPSILON,
+    LITERAL,  // string literal
+    ALPHA,    // alphabetic string
+    NUM,      // number
+    ALNUM,    // alphanumeric string
+    EPSILON,  // represents empty string
     DERIVE,   // '->' (derivation)
     DISJ,     // '|' (disjunction)
     CONJ,     // '&' (conjunction)
@@ -90,7 +93,8 @@ class Disj: public GrammarNode {
         void updateTable(std::string nt) override;
 };
 
-extern StrSet alphabet; // set of terminal symbols used by grammar
+extern StrSet alphabet;         // set of terminal symbols used by grammar
+extern std::set<int> termTypes; // possible terminal token types
 extern std::map<std::pair<std::string, std::string>, GNodeList> parseTable;
 
 #endif

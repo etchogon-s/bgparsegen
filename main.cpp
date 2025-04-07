@@ -14,7 +14,7 @@ std::string strSetString(StrSet strs) {
     for (const std::string& s : strs) {
         result += " ";
         if (s == "")
-            result += "epsilon"; // represents empty string
+            result += "EPSILON"; // represents empty string
         else
             result += s;
     }
@@ -44,14 +44,21 @@ std::string nlString(const GNodeList& list, int depth) {
 // Print symbol
 std::string printSymb(const SYMBOL& symbol, int depth) {
     std::string result = makeIndent(depth);
-    if (symbol.type == NON_TERM)
-        result += "NON-";
-    result += "TERMINAL: ";
-    if (symbol.str == "")
-        result += "epsilon"; // represents empty string
-    else
-        result += symbol.str;
-    return result + "\n";
+    switch (symbol.type) {
+        case EPSILON:
+            return result + "EPSILON\n";
+        case ALPHA:
+            return result + "ALPHA\n";
+        case NUM:
+            return result + "NUM\n";
+        case ALNUM:
+            return result + "ALNUM\n";
+        case NON_TERM:
+            result += "NON-";
+            break;
+    }
+
+    return result + "TERMINAL: " + symbol.str + "\n";
 }
 
 // Print conjunct (show whether positive or negative, and print sequence of symbols)
@@ -158,7 +165,7 @@ StrSet Conjunct::firstSet() {
             return firsts;
 
         // Terminal is non-nullable, so FIRST set is complete after adding it
-        } else if (symb.type == LITERAL) {
+        } else if (termTypes.contains(symb.type)) {
             firsts.insert(symb.str);
             Nullable = false;
             return firsts;
@@ -233,7 +240,7 @@ void Conjunct::followAdd(std::string nt) const {
             // Add to FOLLOW set until non-nullable symbol or end of conjunct reached
             while (!nonNullableFound && (nextIndex < conjSize)) {
                 const SYMBOL& next = Symbols[nextIndex];
-                if (next.type == LITERAL) {
+                if (termTypes.contains(next.type)) {
                     followSets[current.str].insert(next.str); // put terminal in FOLLOW set
                     nonNullableFound = true;                  // terminal is non-nullable
 
@@ -338,7 +345,7 @@ int main(int argc, char **argv) {
     // Print grammar AST
     std::cout << "\nGrammar AST\n";
     for (const auto& disj : grammar)
-        std::cout << "TERMINAL " + disj.first + "\n" + disj.second->toString(0);
+        std::cout << "NON-TERMINAL " + disj.first + "\n" + disj.second->toString(0);
 
     /* Build adjacency list: map each non-terminal to set of non-terminals used in rules
      * derived from it */
@@ -389,7 +396,7 @@ int main(int argc, char **argv) {
     for (const auto& entry : parseTable) {
         std::cout << "NON-TERMINAL " + (entry.first).first + ", STRING ";
         if ((entry.first).second == "")
-            std::cout << "epsilon";
+            std::cout << "EPSILON";
         else
             std::cout << (entry.first).second;
         std::cout << "\n" + makeIndent(1) + "RULE:\n" + nlString(entry.second, 2);
