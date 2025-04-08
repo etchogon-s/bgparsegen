@@ -73,17 +73,11 @@ static SYMBOL getToken() {
         currentChar = fgetc(inpFile);
     }
 
-    // If characters have been added to string, return non-terminal or keyword token
+    // If characters have been added to string, return non-terminal or epsilon token
     if (currentStr != "") {
         fseek(inpFile, -1, SEEK_CUR); // don't lose current character, move back 1
         if (currentStr == "EPSILON")
             return makeToken(currentStr, EPSILON);
-        if (currentStr == "ALPHA")
-            return makeToken(currentStr, ALPHA);
-        if (currentStr == "NUM")
-            return makeToken(currentStr, NUM);
-        if (currentStr == "ALNUM")
-            return makeToken(currentStr, ALNUM);
         return makeToken(currentStr, NON_TERM);
     }
 
@@ -140,16 +134,15 @@ static bool match(int tokType) {
     return false; // do not move on, current token will be checked again
 }
 
-StrSet alphabet;                                        // set of terminal symbols
-std::set<int> termTypes = {LITERAL, ALPHA, NUM, ALNUM}; // possible terminal token types
+StrSet alphabet; // set of terminal symbols
 
-// Parse symbol (non-terminal, literal, or keyword)
+// Parse symbol (non-terminal, literal, or epsilon)
 static SYMBOL parseSymbol() {
     SYMBOL symb = currentToken;
-    if (termTypes.contains(symb.type))
+    if (symb.type == LITERAL)
         alphabet.insert(symb.str); // if symbol is terminal, add to alphabet
     else if ((symb.type != NON_TERM) && (symb.type != EPSILON))
-        parseError("non-terminal, literal, or keyword ('alpha', 'num', 'alnum', 'epsilon')");
+        parseError("non-terminal, literal, or epsilon");
 
     currentToken = getToken();
     return symb;

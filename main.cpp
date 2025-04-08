@@ -47,12 +47,6 @@ std::string printSymb(const SYMBOL& symbol, int depth) {
     switch (symbol.type) {
         case EPSILON:
             return result + "EPSILON\n";
-        case ALPHA:
-            return result + "ALPHA\n";
-        case NUM:
-            return result + "NUM\n";
-        case ALNUM:
-            return result + "ALNUM\n";
         case NON_TERM:
             result += "NON-";
             break;
@@ -165,7 +159,7 @@ StrSet Conjunct::firstSet() {
             return firsts;
 
         // Terminal is non-nullable, so FIRST set is complete after adding it
-        } else if (termTypes.contains(symb.type)) {
+        } else if (symb.type == LITERAL) {
             firsts.insert(symb.str);
             Nullable = false;
             return firsts;
@@ -240,7 +234,7 @@ void Conjunct::followAdd(std::string nt) const {
             // Add to FOLLOW set until non-nullable symbol or end of conjunct reached
             while (!nonNullableFound && (nextIndex < conjSize)) {
                 const SYMBOL& next = Symbols[nextIndex];
-                if (termTypes.contains(next.type)) {
+                if (next.type == LITERAL) {
                     followSets[current.str].insert(next.str); // put terminal in FOLLOW set
                     nonNullableFound = true;                  // terminal is non-nullable
 
