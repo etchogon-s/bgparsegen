@@ -72,7 +72,7 @@ TOKEN makeToken(std::string str, int lineNo, int columnNo) {
     TOKEN token;
     token.str = str;
     token.lineNo = lineNo;
-    token.columnNo = columnNo - str.length();
+    token.columnNo = columnNo - str.length() + 1;
     return token;
 }
 
@@ -302,28 +302,38 @@ int main(int argc, char **argv) {{
         return 1;
     }}
     
+    int maxTermLen = 0;
+    for (std::string str : terminals)
+        maxTermLen = (maxTermLen > str.length()) ? maxTermLen : str.length();
+
     char currentChar;
     std::string currentStr = "";
     int lineNo = 1;
     int columnNo = 1;
+    int maxMatchLen = 0;
     while ((currentChar = fgetc(inputFile)) != EOF) {{
+        if ((currentChar != '\n') && (currentChar != '\r'))
+            currentStr += currentChar;
+
+        if (terminals.count(currentStr) > 0)
+            maxMatchLen = currentStr.length();
+
+        if (currentStr.length() == maxTermLen) {{
+            if (maxMatchLen == 0) {{
+                std::cout << "Lexer error [ln " + std::to_string(lineNo) + ", col " + std::to_string(columnNo - currentStr.length() + 1) + "]: unrecognised sequence '" + currentStr + "'\n";
+                return 1;
+            }}
+
+            std::string tokenStr = currentStr.substr(0, maxMatchLen);
+            sentence.push_back(makeToken(tokenStr, lineNo, columnNo));
+            currentStr.erase(0, maxMatchLen);
+            maxMatchLen = 0;
+        }}
+
         columnNo++;
         if ((currentChar == '\n') || (currentChar == '\r')) {{
             lineNo++;
             columnNo = 1;
-        }}
-
-        if (!isspace(currentChar))
-            currentStr += currentChar;
-
-        if (terminals.count(currentStr) > 0) {{
-            sentence.push_back(makeToken(currentStr, lineNo, columnNo));
-            currentStr = "";
-        }} else {{
-            if (currentStr.length() >= 1) {{
-                std::cout << "Lexer error [ln " + std::to_string(lineNo) + ", col " + std::to_string(columnNo - currentStr.length()) + "]: unexpected sequence '" + currentStr + "'\n";
-                return 1;
-            }}
         }}
     }}
     fclose(inputFile);
