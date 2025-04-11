@@ -34,7 +34,6 @@ using SymbVec = std::vector<SYMBOL>;
 // Grammar AST node
 class GrammarNode {
     public:
-        bool Nullable = true;
         virtual ~GrammarNode() {}
         virtual std::string toString(int depth) const {return "";};
         virtual StrSet references() const {return StrSet();};
@@ -91,6 +90,6 @@ class Disj: public GrammarNode {
 };
 
 extern StrSet alphabet; // set of terminal symbols used by grammar
-extern std::map<std::pair<std::string, std::string>, GNodeList> parseTable;
+extern std::map<std::pair<std::string, StrVec>, GNodeList> parseTable;
 
 #endif
