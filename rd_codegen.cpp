@@ -86,14 +86,13 @@ std::string displayPos(int lineNo, int columnNo) {
     return " [ln " + std::to_string(lineNo) + ", col " + std::to_string(columnNo) + "]";
 }
 
-void tokenFail(bool wanted, std::string expected) {
+void tokenFail(bool wanted, std::string wrong, std::string expected) {
     if (!wanted)
         return;
 
-    TOKEN current = sentence[pos];
-    std::string failPos = displayPos(current.lineNo, current.columnNo);
-    std::string failStr = (current.str == "") ? "EOF" : current.str;
-    std::cout << "Parser error" + failPos + ": unexpected token " + failStr + ", expecting " + expected + "\n";
+    std::string failPos = displayPos(sentence[pos].lineNo, sentence[pos].columnNo);
+    std::string failStr = (wrong == "") ? "EOF" : wrong;
+    std::cout << "Parser error" + failPos + ": unexpected sequence " + failStr + ", expecting " + expected + "\n";
 }
 
 void conjFail(bool wanted, size_t start, size_t end, bool posConj, std::string conjStr) {
@@ -115,7 +114,7 @@ PNode terminal(bool wanted, std::string tokenStr) {
         pos++;
         return std::make_shared<Leaf>(tokenStr);
     } else {
-        tokenFail(wanted, tokenStr);
+        tokenFail(wanted, sentence[pos].str, tokenStr);
         return nullptr;
     }
 })";
@@ -244,16 +243,16 @@ static std::string parseNonTerminal(int nonTerminalNo, const std::string& nt) {
     std::string ntCases = "";
     std::string expected = "";
 
-    // For each terminal that is paired with the non-terminal in the parse table, add a case
-    for (const std::string& s : alphabet) {
-        std::pair<std::string, std::string> symbolPair = make_pair(nt, s);
-        if (parseTable.count(symbolPair)) {
+    // For each sequence that is paired with the non-terminal in the parse table, add a case
+    for (const auto& entry : parseTable) {
+        if ((entry.first).first == nt) {
+            std::string s = (entry.first).second; // sequence
             std::string tableEntry = "";
-            size_t ruleSize = parseTable[symbolPair].size(); // number of conjuncts in rule
+            size_t ruleSize = (entry.second).size(); // number of conjuncts in rule
             size_t conjNo = 0;
 
             // Generate code for each conjunct in the rule in the table entry
-            for (const GNode& conj : parseTable[symbolPair]) {
+            for (const GNode& conj : entry.second) {
                 tableEntry += parseConj(conj, conjNo, ruleSize);
                 conjNo++;
             }
@@ -261,7 +260,7 @@ static std::string parseNonTerminal(int nonTerminalNo, const std::string& nt) {
             // Add code for all conjuncts to the case
             ntCases += std::format(
 R"(
-    if (sentence[pos].str == "{}") {{
+    if (nextKTokens == "{}") {{
 {}        return std::make_shared<Internal>("{}", std::move(subTreeVersions));
     }}
 )", 
@@ -277,8 +276,9 @@ R"(
 
 PNode nonTerminal{}(bool wanted) {{
     std::vector<PNodeList> subTreeVersions;
+    std::string nextKTokens = nextK();
 {}
-    tokenFail(wanted, "{}");
+    tokenFail(wanted, nextKTokens, "{}");
     return nullptr;
 }})", 
     nonTerminalNo, ntCases, expected); // if function does not return after any case, parsing fails
@@ -357,12 +357,26 @@ int main(int argc, char **argv) {{
 }
 
 // Write code to file
-void RDCodegen(StrVec ntOrder) {
+void RDCodegen(StrVec ntOrder, int k) {
     std::ofstream parserFile;
     parserFile.open("parser.cpp");
     parserFile << beginningCode;
 
-    // Write parser functions for terminals
+    // Function for obtaining sequence of next k tokens
+    parserFile << std::format(R"(
+
+std::string nextK() {{
+    std::string sequence = "";
+    int i = pos;
+    while ((i < sentence.size()) && (i < pos + {})) {{
+        sequence += sentence[i].str;
+        i++;
+    }}
+    return sequence;
+}})",
+    k);
+
+    // Build string representing set of terminals
     std::string terminalSet = "\n\nstd::set<std::string> terminals = {";
     int terminalNo = 0;
     for (const std::string& s : alphabet) {
