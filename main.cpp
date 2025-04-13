@@ -210,8 +210,9 @@ std::set<StrVec> Conjunct::firstSet(std::string nt, int k) {
             // If symb is the deriving non-terminal, recursively expand set k times
             if (symb.str == nt) {
                 for (int i = 0; i < k; i++) {
-                    firsts.insert({""}); // symb must be nullable
-                    firsts = allConcat(firsts, firsts, k);
+                    std::set<StrVec> firstsPlusE = firsts;
+                    firstsPlusE.insert({""});
+                    firsts = allConcat(firstsPlusE, firsts, k);
                 }
             } else {
                 if (!firstSets[symb.str].contains({""}))
@@ -307,6 +308,7 @@ void Conjunct::followAdd(std::string nt, int k) const {
         // If symbol is non-terminal, look at subsequent symbols
         if (current.type == NON_TERM) {
             nextIndex = i + 1;
+            std::string cStr = current.str;
             std::set<StrVec> partialFollow = std::set<StrVec>();
 
             // Add to partial PFOLLOW set until end of conjunct reached
@@ -330,20 +332,25 @@ void Conjunct::followAdd(std::string nt, int k) const {
                 nextIndex++; // go to next symbol
             }
 
-            /* When end of conjunct is reached, concatenate each sequence in PFOLLOW set of
-             * the deriving non-terminal with each sequence in current's PFOLLOW set
+            /* When end of conjunct is reached, if current is the deriving non-terminal,
+             * recursively expand set k times */
+            if (cStr == nt) {
+                for (int i = 0; i < k; i++) {
+                    std::set<StrVec> followsPlusE = partialFollow;
+                    followsPlusE.insert({""});
+                    partialFollow = allConcat(followsPlusE, partialFollow, k);
+                }
+            /* Otherwise, concatenate each sequence in PFOLLOW set of the deriving non-
+             * terminal with each sequence in current's PFOLLOW set
              * Add sequence consisting of first k symbols of result to a new set
              * Replace PFOLLOW set with this new set */
-            std::string cStr = current.str;
+            } else {
+                partialFollow = allConcat(partialFollow, followSets[nt], k);
+            }
+
             if (followSets.count(cStr) == 0)
                 followSets[cStr] = std::set<StrVec>(); // create set if it does not exist
-
-            // If current is the deriving non-terminal, recursively expand set k times
-            int expand = (cStr == nt) ? k : 1;
-            for (int i = 0; i < expand; i++) {
-                partialFollow = allConcat(partialFollow, followSets[nt], k);
-                followSets[cStr].insert(partialFollow.cbegin(), partialFollow.cend());
-            }
+            followSets[cStr].insert(partialFollow.cbegin(), partialFollow.cend());
         }
     }
     return;
@@ -367,11 +374,18 @@ void Disj::followAdd(std::string nt, int k) const {
 // Compute Parsing Table //
 //-----------------------//
 
-// Parsing table, maps pair of non-terminal and sequence to rule (list of conjuncts)
-std::map<std::pair<std::string, std::string>, GNodeList> parseTable;
+int ruleNo = 0;
+std::map<int, GNodeList> rules; // give number to each rule
+
+// Parsing table, maps pair of non-terminal and sequence to rule number
+std::map<std::pair<std::string, std::string>, int> parseTable;
 
 // Update parsing table by adding the given rule to entries
 void Rule::updateTable(std::string nt, int k) {
+    GNodeList conjuncts;
+    for (const GNode& conj : ConjList)
+        conjuncts.push_back(conj);
+    rules[ruleNo] = conjuncts; // assign number to list of conjuncts
 
     /* All possible terminal sequences to which this rule could be applied:
      * Concatenate each sequence in rule's PFIRST set with each sequence in nt's PFOLLOW set
@@ -385,11 +399,9 @@ void Rule::updateTable(std::string nt, int k) {
             seqStr += str;
 
         std::pair<std::string, std::string> tableEntry = make_pair(nt, seqStr);
-        GNodeList entryRule;
-        for (const GNode& conj : ConjList)
-            entryRule.push_back(conj);
-        parseTable[tableEntry] = entryRule;
+        parseTable[tableEntry] = ruleNo;
     }
+    ruleNo++; // increment rule number to be used by next rule
     return;
 }
 
@@ -475,7 +487,7 @@ int main(int argc, char **argv) {
             entryStr += "EPSILON\n";
         else
             entryStr += (entry.first).second + "\n";
-        std::cout << entryStr + makeIndent(1) + "RULE:\n" + nlString(entry.second, 2);
+        std::cout << entryStr + makeIndent(1) + "RULE:\n" + nlString(rules[entry.second], 2);
     }
 
     // Generate recursive descent parser code
