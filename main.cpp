@@ -339,7 +339,7 @@ void Disj::followAdd(std::string nt, int k) const {
 //-----------------------//
 
 // Parsing table, maps pair of non-terminal and sequence to rule (list of conjuncts)
-std::map<std::pair<std::string, StrVec>, GNodeList> parseTable;
+std::map<std::pair<std::string, std::string>, GNodeList> parseTable;
 
 // Update parsing table by adding the given rule to entries
 void Rule::updateTable(std::string nt, int k) {
@@ -351,7 +351,11 @@ void Rule::updateTable(std::string nt, int k) {
 
     // For each sequence, add the rule to the parsing table entry for nt and this sequence
     for (StrVec v : sequences) {
-        std::pair<std::string, StrVec> tableEntry = make_pair(nt, v);
+        std::string seqStr = "";
+        for (std::string str : v)
+            seqStr += str;
+
+        std::pair<std::string, std::string> tableEntry = make_pair(nt, seqStr);
         GNodeList entryRule;
         for (const GNode& conj : ConjList)
             entryRule.push_back(conj);
@@ -437,8 +441,11 @@ int main(int argc, char **argv) {
     // Print parsing table
     std::cout << "\nLL(" + std::to_string(k) + ") Parsing Table\n";
     for (const auto& entry : parseTable) {
-        std::string entryStr = "NON-TERMINAL " + (entry.first).first + ", SEQUENCE";
-        entryStr += printStrs((entry.first).second) + "\n";
+        std::string entryStr = "NON-TERMINAL " + (entry.first).first + ", SEQUENCE ";
+        if ((entry.first).second == "")
+            entryStr += "EPSILON\n";
+        else
+            entryStr += (entry.first).second + "\n";
         std::cout << entryStr + makeIndent(1) + "RULE:\n" + nlString(entry.second, 2);
     }
 
