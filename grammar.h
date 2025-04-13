@@ -90,6 +90,7 @@ class Disj: public GrammarNode {
 };
 
 extern StrSet alphabet; // set of terminal symbols used by grammar
-extern std::map<std::pair<std::string, std::string>, GNodeList> parseTable; // parsing table
+extern std::map<std::pair<std::string, std::string>, int> parseTable; // parsing table
+extern std::map<int, GNodeList> rules; // rule numbering
 
 #endif
