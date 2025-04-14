@@ -134,7 +134,7 @@ static bool match(int tokType) {
     return false; // do not move on, current token will be checked again
 }
 
-StrSet alphabet = {""}; // set of terminal symbols
+StrSet alphabet; // set of terminal symbols
 
 // Parse symbol (non-terminal, literal, or epsilon)
 static SYMBOL parseSymbol() {

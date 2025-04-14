@@ -411,12 +411,10 @@ std::string nextK() {{
     std::string terminalSet = "\n\nstd::set<std::string> terminals = {";
     int terminalNo = 0;
     for (const std::string& s : alphabet) {
-        if (s != "") {
-            if (terminalNo > 0)
-                terminalSet += ", ";
-            terminalSet += "\"" + s + "\"";
-            terminalNo++;
-        }
+        if (terminalNo > 0)
+            terminalSet += ", ";
+        terminalSet += "\"" + s + "\"";
+        terminalNo++;
     }
     terminalSet += "};";
 
