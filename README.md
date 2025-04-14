@@ -4,4 +4,4 @@ Parser generator for Boolean grammars.
 Usage:
 
     $ make
-    $ ./bgparsegen <grammar file>
+    $ ./bgparsegen <grammar file> <k>
