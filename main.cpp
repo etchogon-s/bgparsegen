@@ -192,21 +192,17 @@ std::map<std::string, std::set<StrVec>> firstSets, followSets;
 
 // Compute PFIRST set of conjunct
 std::set<StrVec> Conjunct::firstSet(std::string nt, int k) {
+    if ((Symbols[0].type == NON_TERM) && (Symbols[0].str == nt)) {
+        std::cout << "Error: grammar contains left recursion in rule for non-terminal " + nt + "\n";
+        exit(1); // quit if grammar is left-recursive
+    }
+
     std::set<StrVec> firsts = std::set<StrVec>(); // conjunct PFIRST set
     if (!Pos)
         return firsts; // if conjunct is negative, return empty set
 
     bool nullable = true;
-    bool firstSymb = true;
     for (const SYMBOL& symb : Symbols) {
-        if (firstSymb) {
-            if ((symb.type == NON_TERM) && (symb.str == nt)) {
-                std::cout << "Error: grammar contains left recursion in rule for non-terminal " + nt + "\n";
-                exit(1);
-            }
-            firstSymb = false;
-        }
-
         if (symb.type == LITERAL) {
             nullable = false; // terminal is non-nullable, so conjunct is non-nullable
 
