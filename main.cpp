@@ -186,9 +186,9 @@ std::set<StrVec> allConcat(std::set<StrVec> seqs, std::set<StrVec> addSeqs, int 
 // PFIRST/PFOLLOW set of each non-terminal (key) is a set of sequences of terminals (value)
 std::map<std::string, std::set<StrVec>> firstSets, followSets;
 
-//--------------------//
+//---------------------//
 // Compute PFIRST Sets //
-//--------------------//
+//---------------------//
 
 // Compute PFIRST set of conjunct
 std::set<StrVec> Conjunct::firstSet(std::string nt, int k) {
@@ -197,7 +197,16 @@ std::set<StrVec> Conjunct::firstSet(std::string nt, int k) {
         return firsts; // if conjunct is negative, return empty set
 
     bool nullable = true;
+    bool firstSymb = true;
     for (const SYMBOL& symb : Symbols) {
+        if (firstSymb) {
+            if ((symb.type == NON_TERM) && (symb.str == nt)) {
+                std::cout << "Error: grammar contains left recursion in rule for non-terminal " + nt + "\n";
+                exit(1);
+            }
+            firstSymb = false;
+        }
+
         if (symb.type == LITERAL) {
             nullable = false; // terminal is non-nullable, so conjunct is non-nullable
 
@@ -274,7 +283,7 @@ std::set<StrVec> Rule::firstSet(std::string nt, int k) {
     /* If rule's positive conjuncts are contradictory, all the elements in the PFIRST set
      * will have been removed */
     if (Firsts.empty()) {
-        std::cout << "Conjuncts in rule for non-terminal " + nt + " are contradictory\n";
+        std::cout << "Error: conjuncts in rule for non-terminal " + nt + " are contradictory\n";
         exit(1); // quit, since grammar is invalid
     }
     return Firsts;
@@ -292,9 +301,9 @@ std::set<StrVec> Disj::firstSet(std::string nt, int k) {
     return firsts;
 }
 
-//---------------------//
+//----------------------//
 // Compute PFOLLOW Sets //
-//---------------------//
+//----------------------//
 
 // Build PFOLLOW sets of non-terminals used in conjunct
 void Conjunct::followAdd(std::string nt, int k) const {
