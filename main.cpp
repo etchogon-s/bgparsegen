@@ -268,6 +268,9 @@ std::set<StrVec> Rule::firstSet(std::string nt, int k) {
      * For efficiency, check if this set has already been computed */
     if (posConjNo == 0) {
         if (allFirsts.empty()) {
+            for (const std::string s : alphabet)
+                allFirsts.insert({s}); // start with alphabet
+
             for (int i = 0; i < k; i++) {
                 allFirsts.insert({""});
                 allFirsts = allConcat(allFirsts, allFirsts, k);
