@@ -337,7 +337,7 @@ PNode nonTerminal{}(bool wanted) {{
  * Calls the parsing function for the start symbol (the last numbered non-terminal)
  * Parser must stop at the end of the input for parsing to succeed
  * If parsing succeeds, print parse tree */
-static std::string mainFunction(int nonTerminalNo) {
+static std::string mainFunction(int nonTerminalNo, std::string terminalSet) {
     return std::format(R"(
 
 int main(int argc, char **argv) {{
@@ -349,6 +349,8 @@ int main(int argc, char **argv) {{
         std::cout << "Usage: ./parser <input file>\n";
         return 1;
     }}
+
+    std::set<std::string> terminals = {};
     
     int maxTermLen = 0;
     for (std::string str : terminals)
@@ -406,7 +408,7 @@ int main(int argc, char **argv) {{
     std::cout << "Parsing failed\n";
     return 1;
 }})", 
-    nonTerminalNo - 1);
+    terminalSet, nonTerminalNo);
 }
 
 // Write code to file
@@ -430,7 +432,7 @@ std::string nextK() {{
     k);
 
     // Build string representing set of terminals
-    std::string terminalSet = "\n\nstd::set<std::string> terminals = {";
+    std::string terminalSet = "{";
     int terminalNo = 0;
     for (const std::string& s : alphabet) {
         if (terminalNo > 0)
@@ -438,7 +440,7 @@ std::string nextK() {{
         terminalSet += "\"" + s + "\"";
         terminalNo++;
     }
-    terminalSet += "};";
+    terminalSet += "}";
 
     /* Assign numbers to non-terminals
      * Write forward declarations for non-terminal functions, so they can be called by
@@ -457,7 +459,6 @@ std::string nextK() {{
     for (const std::string& nt : ntOrder)
         parserFile << parseNonTerminal(nonTerminalNos[nt], nt);
 
-    parserFile << terminalSet;                 // define terminals
-    parserFile << mainFunction(nonTerminalNo); // write main function
+    parserFile << mainFunction(nonTerminalNo - 1, terminalSet); // write main function
     parserFile.close();
 }
