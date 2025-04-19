@@ -116,12 +116,11 @@ void conjFail(bool wanted, size_t start, size_t end, bool posConj, std::string c
 }
 
 PNode terminal(bool wanted, std::string tokenStr) {
-    if (sentence[pos].str == tokenStr) {
+    if (sentence[pos].str == tokenStr)
         return std::make_shared<Leaf>(sentence[pos++]);
-    } else {
-        tokenFail(wanted, sentence[pos].str, tokenStr);
-        return nullptr;
-    }
+
+    tokenFail(wanted, sentence[pos].str, tokenStr);
+    return nullptr;
 }
 
 bool startsWith(std::string str, std::string prefix) {
