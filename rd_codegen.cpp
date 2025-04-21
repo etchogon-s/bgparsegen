@@ -355,14 +355,23 @@ int main(int argc, char **argv) {{
     for (std::string str : terminals)
         maxTermLen = (maxTermLen > str.length()) ? maxTermLen : str.length();
 
-    char currentChar;
     std::string currentStr = "";
     int lineNo = 1;
     int columnNo = 1;
     int maxMatchLen = 0;
-    while ((currentChar = fgetc(inputFile)) != EOF) {{
-        if ((currentChar != '\n') && (currentChar != '\r'))
+    char currentChar = fgetc(inputFile);
+    while (currentChar != EOF) {{
+        bool newLine = false;
+        if ((currentChar == '\n') || (currentChar == '\r')) {{
+            char nextChar;
+            if ((nextChar = fgetc(inputFile)) != EOF)
+                currentStr += currentChar;
+            currentChar = nextChar;
+            newLine = true;
+        }} else {{
             currentStr += currentChar;
+            currentChar = fgetc(inputFile);
+        }}
 
         if (terminals.count(currentStr) > 0)
             maxMatchLen = currentStr.length();
@@ -380,7 +389,7 @@ int main(int argc, char **argv) {{
         }}
 
         columnNo++;
-        if ((currentChar == '\n') || (currentChar == '\r')) {{
+        if (newLine) {{
             lineNo++;
             columnNo = 1;
         }}
