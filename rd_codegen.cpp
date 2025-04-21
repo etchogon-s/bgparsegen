@@ -295,7 +295,7 @@ static std::string parseNonTerminal(int nonTerminalNo, const std::string& nt) {
         ntCases += std::format(
 R"(
         {}if (startsWith(nextKTokens, "{}")) {{
-            newNode = std::move(rule{}(wanted, "{}"));
+            newNode = rule{}(wanted, "{}");
 )", 
         elseStr, s, ruleNo, nt);
 
@@ -320,6 +320,10 @@ PNode nonTerminal{}(bool wanted) {{
             newNode = nullptr;
         }}
 
+        if (!newNode) {{
+            memo[memoIndex] = nullptr;
+            return nullptr;
+        }}
         memo[memoIndex] = newNode;
         return newNode;
     }}
