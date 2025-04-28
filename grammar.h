@@ -37,8 +37,8 @@ class GrammarNode {
         virtual ~GrammarNode() {}
         virtual std::string toString(int depth) const {return "";};
         virtual StrSet references() const {return StrSet();};
-        virtual std::set<StrVec> firstSet(std::string nt, int k) {return std::set<StrVec>();};
-        virtual void followAdd(std::string nt, int k) const {};
+        virtual std::set<StrVec> pFirstSet(std::string nt, int k) {return std::set<StrVec>();};
+        virtual void pFollowAdd(std::string nt, int k) const {};
         virtual bool isPositive() const {return true;};
         virtual void updateTable(std::string nt, int k) {};
         virtual SymbVec getSymbols() const {return SymbVec();};
@@ -56,8 +56,8 @@ class Conjunct: public GrammarNode {
         Conjunct(SymbVec symbols, bool pos): Symbols(std::move(symbols)), Pos(pos) {}
         std::string toString(int depth) const override;
         StrSet references() const override;
-        std::set<StrVec> firstSet(std::string nt, int k) override;
-        void followAdd(std::string nt, int k) const override;
+        std::set<StrVec> pFirstSet(std::string nt, int k) override;
+        void pFollowAdd(std::string nt, int k) const override;
         bool isPositive() const override {return Pos;};
         SymbVec getSymbols() const override {return Symbols;};
 };
@@ -71,8 +71,8 @@ class Rule: public GrammarNode {
         Rule(GNodeList conjList): ConjList(std::move(conjList)) {}
         std::string toString(int depth) const override;
         StrSet references() const override;
-        std::set<StrVec> firstSet(std::string nt, int k) override;
-        void followAdd(std::string nt, int k) const override;
+        std::set<StrVec> pFirstSet(std::string nt, int k) override;
+        void pFollowAdd(std::string nt, int k) const override;
         void updateTable(std::string nt, int k) override;
 };
 
@@ -84,8 +84,8 @@ class Disj: public GrammarNode {
         Disj(GNodeList ruleList): RuleList(std::move(ruleList)) {}
         std::string toString(int depth) const override;
         StrSet references() const override;
-        std::set<StrVec> firstSet(std::string nt, int k) override;
-        void followAdd(std::string nt, int k) const override;
+        std::set<StrVec> pFirstSet(std::string nt, int k) override;
+        void pFollowAdd(std::string nt, int k) const override;
         void updateTable(std::string nt, int k) override;
 };
 
