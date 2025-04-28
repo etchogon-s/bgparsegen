@@ -197,9 +197,9 @@ std::set<StrVec> Conjunct::pFirstSet(std::string nt, int k) {
         exit(1); // quit if grammar is left-recursive
     }
 
-    std::set<StrVec> firsts = std::set<StrVec>(); // conjunct PFIRST set
+    std::set<StrVec> pFirsts = std::set<StrVec>(); // conjunct PFIRST set
     if (!Pos)
-        return firsts; // if conjunct is negative, return empty set
+        return pFirsts; // if conjunct is negative, return empty set
 
     bool nullable = true;
     for (const SYMBOL& symb : Symbols) {
@@ -209,15 +209,15 @@ std::set<StrVec> Conjunct::pFirstSet(std::string nt, int k) {
             // Append terminal to each sequence in conjunct PFIRST set with length < k
             std::set<StrVec> symbSeq;
             symbSeq.insert({symb.str});
-            firsts = allConcat(firsts, symbSeq, k);
+            pFirsts = allConcat(pFirsts, symbSeq, k);
 
         } else if (symb.type == NON_TERM) {
             // If symb is the deriving non-terminal, recursively expand set k times
             if (symb.str == nt) {
                 for (int i = 0; i < k; i++) {
-                    std::set<StrVec> firstsPlusE = firsts;
-                    firstsPlusE.insert({""});
-                    firsts = allConcat(firstsPlusE, firsts, k);
+                    std::set<StrVec> pFirstsPlusE = pFirsts;
+                    pFirstsPlusE.insert({""});
+                    pFirsts = allConcat(pFirstsPlusE, pFirsts, k);
                 }
             } else {
                 if (!pFirstSets[symb.str].contains({""}))
@@ -227,15 +227,15 @@ std::set<StrVec> Conjunct::pFirstSet(std::string nt, int k) {
                  * non-terminal's PFIRST set
                  * Add sequence consisting of first k symbols of result to a new set
                  * Replace conjunct PFIRST set with this new set */
-                firsts = allConcat(firsts, pFirstSets[symb.str], k);
+                pFirsts = allConcat(pFirsts, pFirstSets[symb.str], k);
             }
         }
     }
 
     // If conjunct is nullable, PFIRST set of conjunct contains epsilon
     if (nullable)
-        firsts.insert({""});
-    return firsts;
+        pFirsts.insert({""});
+    return pFirsts;
 }
 
 // All elements of Σ* that are k or fewer terminals long; may not need to be computed
@@ -243,22 +243,22 @@ std::set<StrVec> allFirsts = std::set<StrVec>();
 
 // Compute PFIRST set of rule (intersection of conjuncts' PFIRST sets)
 std::set<StrVec> Rule::pFirstSet(std::string nt, int k) {
-    Firsts = std::set<StrVec>(); // rule PFIRST set
+    PFirsts = std::set<StrVec>(); // rule PFIRST set
 
     int posConjNo = 0; // number of positive conjuncts in rule
     for (const GNode& conj : ConjList) {
-        std::set<StrVec> conjFirsts = conj->pFirstSet(nt, k); // get PFIRST set of conjunct
-        if (!conjFirsts.empty()) { // conjunct is positive
+        std::set<StrVec> conjPFirsts = conj->pFirstSet(nt, k); // get PFIRST set of conjunct
+        if (!conjPFirsts.empty()) { // conjunct is positive
             // Remove items from rule PFIRST set that are not in conjunct PFIRST set
-            for (auto it = Firsts.begin(); it != Firsts.end();) {
-                if (!conjFirsts.contains(*it))
-                    it = Firsts.erase(it);
+            for (auto it = PFirsts.begin(); it != PFirsts.end();) {
+                if (!conjPFirsts.contains(*it))
+                    it = PFirsts.erase(it);
                 else
                     it++;
             }
 
-            if (Firsts.empty() && (posConjNo == 0))
-                Firsts = conjFirsts; // start with PFIRST set of first positive conjunct
+            if (PFirsts.empty() && (posConjNo == 0))
+                PFirsts = conjPFirsts; // start with PFIRST set of first positive conjunct
             posConjNo++;
         }
     }
@@ -276,28 +276,28 @@ std::set<StrVec> Rule::pFirstSet(std::string nt, int k) {
                 allFirsts = allConcat(allFirsts, allFirsts, k);
             }
         }
-        Firsts = allFirsts;
+        PFirsts = allFirsts;
     }
 
     /* If rule's positive conjuncts are contradictory, all the elements in the PFIRST set
      * will have been removed */
-    if (Firsts.empty()) {
+    if (PFirsts.empty()) {
         std::cout << "Error: conjuncts in rule for non-terminal " + nt + " are contradictory\n";
         exit(1); // quit, since grammar is invalid
     }
-    return Firsts;
+    return PFirsts;
 }
 
 // Compute PFIRST set of disjunction (union of rules' PFIRST sets)
 std::set<StrVec> Disj::pFirstSet(std::string nt, int k) {
-    std::set<StrVec> firsts;
+    std::set<StrVec> pFirsts;
 
     // Add elements of each rule's PFIRST set to disjunction PFIRST set
     for (const GNode& rule : RuleList) {
-        std::set<StrVec> ruleFirsts = rule->pFirstSet(nt, k);
-        firsts.insert(ruleFirsts.cbegin(), ruleFirsts.cend());
+        std::set<StrVec> rulePFirsts = rule->pFirstSet(nt, k);
+        pFirsts.insert(rulePFirsts.cbegin(), rulePFirsts.cend());
     }
-    return firsts;
+    return pFirsts;
 }
 
 //----------------------//
@@ -317,7 +317,7 @@ void Conjunct::pFollowAdd(std::string nt, int k) const {
         if (current.type == NON_TERM) {
             nextIndex = i + 1;
             std::string cStr = current.str;
-            std::set<StrVec> partialFollow = std::set<StrVec>();
+            std::set<StrVec> partialPFollow = std::set<StrVec>();
 
             // Add to partial PFOLLOW set until end of conjunct reached
             while (nextIndex < conjSize) {
@@ -327,14 +327,14 @@ void Conjunct::pFollowAdd(std::string nt, int k) const {
                 if (next.type == LITERAL) {
                     std::set<StrVec> nextSeq;
                     nextSeq.insert({next.str});
-                    partialFollow = allConcat(partialFollow, nextSeq, k);
+                    partialPFollow = allConcat(partialPFollow, nextSeq, k);
 
                 /* Concatenate each sequence in partial PFOLLOW set with each sequence in
                  * non-terminal's PFIRST set
                  * Add sequence consisting of first k symbols of result to a new set
                  * Replace partial PFOLLOW set with this new set */
                 } else if (next.type == NON_TERM) {
-                    partialFollow = allConcat(partialFollow, pFirstSets[next.str], k);
+                    partialPFollow = allConcat(partialPFollow, pFirstSets[next.str], k);
                 }
 
                 nextIndex++; // go to next symbol
@@ -344,21 +344,21 @@ void Conjunct::pFollowAdd(std::string nt, int k) const {
              * recursively expand set k times */
             if (cStr == nt) {
                 for (int i = 0; i < k; i++) {
-                    std::set<StrVec> followsPlusE = partialFollow;
-                    followsPlusE.insert({""});
-                    partialFollow = allConcat(followsPlusE, partialFollow, k);
+                    std::set<StrVec> pFollowsPlusE = partialPFollow;
+                    pFollowsPlusE.insert({""});
+                    partialPFollow = allConcat(pFollowsPlusE, partialPFollow, k);
                 }
             /* Otherwise, concatenate each sequence in PFOLLOW set of the deriving non-
              * terminal with each sequence in current's PFOLLOW set
              * Add sequence consisting of first k symbols of result to a new set
              * Replace PFOLLOW set with this new set */
             } else {
-                partialFollow = allConcat(partialFollow, pFollowSets[nt], k);
+                partialPFollow = allConcat(partialPFollow, pFollowSets[nt], k);
             }
 
             if (pFollowSets.count(cStr) == 0)
                 pFollowSets[cStr] = std::set<StrVec>(); // create set if it does not exist
-            pFollowSets[cStr].insert(partialFollow.cbegin(), partialFollow.cend());
+            pFollowSets[cStr].insert(partialPFollow.cbegin(), partialPFollow.cend());
         }
     }
     return;
@@ -398,7 +398,7 @@ void Rule::updateTable(std::string nt, int k) {
     /* All possible terminal sequences to which this rule could be applied:
      * Concatenate each sequence in rule's PFIRST set with each sequence in nt's PFOLLOW set
      * Truncate each resulting sequence to k symbols, and add it to set */
-    std::set<StrVec> sequences = allConcat(Firsts, pFollowSets[nt], k);
+    std::set<StrVec> sequences = allConcat(PFirsts, pFollowSets[nt], k);
 
     // For each sequence, add the rule to the parsing table entry for nt and this sequence
     for (StrVec v : sequences) {

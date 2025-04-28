@@ -65,7 +65,7 @@ class Conjunct: public GrammarNode {
 // Rule (intersection of conjuncts)
 class Rule: public GrammarNode {
     GNodeList ConjList;
-    std::set<StrVec> Firsts; // FIRST set of rule
+    std::set<StrVec> PFirsts; // PFIRST set of rule
 
     public:
         Rule(GNodeList conjList): ConjList(std::move(conjList)) {}
